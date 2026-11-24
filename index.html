@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Royal Audit</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Royal Audit">
+<meta name="theme-color" content="#f2f2f7">
+<script src="https://accounts.google.com/gsi/client" async></script>
+<script>
+/* ===== Version autonome : connexion Google + script Google du Sheet ===== */
+(function(){
+ const KC="ra-cfg",KT="ra-tok";let cfg=null,tok=null;
+ try{cfg=JSON.parse(localStorage.getItem(KC)||"null")}catch(e){}
+ const jwt=t=>{try{return JSON.parse(decodeURIComponent(escape(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")))))}catch(e){return null}};
+ try{const t=localStorage.getItem(KT);const p=t&&jwt(t);if(p&&p.exp*1000>Date.now()+60000)tok=t}catch(e){}
+ async function call(body,t){const r=await fetch(cfg.url,{method:"POST",body:JSON.stringify({...body,token:t||tok}),redirect:"follow"});
+  const j=await r.json();if(!j.ok){const e=new Error(j.code||"erreur");e.code=j.code||"erreur";throw e}return j}
+ const mcp={
+  watchTool(server,tool,input,handler,opts){let stop=false;
+   const run=async()=>{if(stop)return;if(!tok||jwt(tok).exp*1000<Date.now()){lock("Session expirée : reconnecte-toi.");return}
+    try{const j=await call({action:"get",range:input.range});handler({type:"data",result:{payload:{values:j.values||[]}},cache:{storedAt:Date.now()}})}
+    catch(e){handler({type:"error",error:{code:e.code||"reseau"},code:e.code||"reseau"});if(e.code==="acces")lock("Session expirée : reconnecte-toi.")}};
+   run();const t=opts&&opts.refetchInterval?setInterval(run,opts.refetchInterval):null;return()=>{stop=true;t&&clearInterval(t)}},
+  async callTool(server,tool,input){const sheet=String(input.range).split("!")[0].replace(/'/g,"");try{return{payload:await call({action:"append",sheet,row:input.values[0]})}}catch(e){if(e.code==="acces")lock("Session expirée : reconnecte-toi, puis réessaie.");throw e}}
+ };
+ const downloads={async save({filename,data}){const u=URL.createObjectURL(data instanceof Blob?data:new Blob([data]));const a=document.createElement("a");a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}};
+ const user={async isOwner(){return true},async canEdit(){return true}};
+ window.claude={use:async n=>n==="mcp"?(cfg&&tok?mcp:null):n==="downloads"?downloads:n==="user"?user:null};
+ let gisReady=false;
+ function initGis(){if(gisReady||!cfg||!window.google?.accounts?.id)return;gisReady=true;
+  google.accounts.id.initialize({client_id:cfg.cid,auto_select:true,cancel_on_tap_outside:false,callback:async r=>{
+   const m=document.getElementById("lk_msg");m.textContent="Vérification…";
+   try{const j=await call({action:"ping"},r.credential);localStorage.setItem(KT,r.credential);m.textContent="Bienvenue "+j.email;location.reload()}
+   catch(e){m.textContent=e.code==="acces"?"Ce compte Google n'est pas autorisé.":"Impossible de joindre le script. Vérifie l'adresse et le déploiement."}}});
+  google.accounts.id.renderButton(document.getElementById("gbtn"),{theme:"filled_black",size:"large",shape:"pill",text:"signin_with",locale:"fr",width:280});
+  google.accounts.id.prompt()}
+ function lock(msg){const o=document.getElementById("lockv");if(!o)return;o.hidden=false;
+  document.getElementById("lk_setup").hidden=!!cfg;document.getElementById("lk_sign").hidden=!cfg;
+  document.getElementById("lk_msg").textContent=msg||"";
+  if(cfg){const w=()=>{if(window.google?.accounts?.id)initGis();else setTimeout(w,200)};w()}}
+ document.addEventListener("DOMContentLoaded",()=>{
+  if(!cfg||!tok)lock();
+  else{const p=jwt(tok);document.getElementById("lockbtn").title="Connecté : "+p.email+" · Se déconnecter";
+   setTimeout(()=>lock("Session expirée : reconnecte-toi."),Math.max(0,p.exp*1000-Date.now()))}
+  document.getElementById("lk_setup").addEventListener("submit",ev=>{ev.preventDefault();const m=document.getElementById("lk_msg");
+   const c={url:document.getElementById("lk_url").value.trim(),cid:document.getElementById("lk_cid").value.trim()};
+   if(!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(c.url)){m.textContent="L'adresse doit ressembler à https://script.google.com/macros/s/…/exec";return}
+   if(!/^[\w-]+\.apps\.googleusercontent\.com$/.test(c.cid)){m.textContent="L'ID client doit se terminer par .apps.googleusercontent.com";return}
+   localStorage.setItem(KC,JSON.stringify(c));cfg=c;lock()});
+  document.getElementById("lk_reset").addEventListener("click",()=>{localStorage.removeItem(KC);localStorage.removeItem(KT);location.reload()});
+  document.getElementById("lockbtn").addEventListener("click",()=>{localStorage.removeItem(KT);try{google.accounts.id.disableAutoSelect()}catch(e){}location.reload()});
+ });
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: outil de travail d'un auditeur TikTok, direct et net.
+   IDEA: le tableau de bord d'un créateur, avec l'écran du téléphone en tête.
+   PICTURE: les chiffres vivants du Google Sheet et l'aperçu A4 du rapport.
+   COLOUR and TYPE: encre TikTok, rose #FE2C55, cyan #25F4EE ; Inter.
+   LAYOUT: barre de navigation, une vue par onglet, colonnes qui s'empilent sous 860px. */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0f1016);--ink:light-dark(#161823,#f3f3f6);--mut:light-dark(#6b6f7b,#a3a6b3);--card:light-dark(#f4f4f6,#1b1c25);--line:light-dark(#e4e4e8,#2b2c38);--pink:#fe2c55;--cyan:#25f4ee;--cyan-d:light-dark(#0f9e9a,#25f4ee)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html{scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow-x:clip}
+a{color:var(--pink)}
+.nav{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.navin{max-width:1240px;margin:auto;display:flex;align-items:center;gap:18px;padding:10px max(4vw,16px)}
+.logo{flex:none;font-weight:800;font-size:18px;white-space:nowrap;display:flex;align-items:center;gap:8px}
+.logo i{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,var(--cyan),var(--pink));display:inline-block}
+.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.tabs a{flex:none;text-decoration:none;color:var(--mut);font-weight:600;font-size:15px;padding:10px 14px;border-radius:10px;min-height:44px;display:flex;align-items:center}
+.tabs a[aria-current=page]{color:var(--ink);background:var(--card)}
+.view{display:none;max-width:1240px;margin:auto;padding:clamp(20px,3vw,40px) max(4vw,16px) 64px}
+.view.on{display:block;animation:rise .45s ease both}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+h1{font-size:clamp(32px,5vw,50px);line-height:1.05;letter-spacing:-.03em;margin:0 0 10px;text-wrap:balance}
+h2{font-size:clamp(24px,3vw,32px);line-height:1.1;letter-spacing:-.02em;margin:0 0 6px}
+h3{font-size:18px;margin:0 0 8px}
+.gb{height:6px;width:180px;border-radius:6px;background:linear-gradient(90deg,var(--cyan),var(--pink));margin:6px 0 22px;transform-origin:left;animation:grow .9s .1s ease both}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.mut{color:var(--mut)}.sm{font-size:14px}
+.hero{border-radius:24px;padding:clamp(22px,4vw,44px);background:radial-gradient(circle at 92% 8%,rgba(254,44,85,.35),transparent 42%),radial-gradient(circle at 4% 100%,rgba(37,244,238,.28),transparent 45%),#161823;color:#fff;position:relative;overflow:hidden}
+.hero .mut{color:#b9bcc8}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:22px}
+.kpi{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px}
+.kpi b{display:block;font-size:clamp(26px,4vw,36px);font-weight:800;letter-spacing:-.02em;white-space:nowrap}
+.kpi span{font-size:13px;color:#c9ccd6}
+.kpi.hot{background:var(--pink);border-color:var(--pink)}
+.status{font-size:13px;margin-top:14px;color:#b9bcc8}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:10px 18px;border-radius:12px;border:0;font:600 15px Inter,sans-serif;cursor:pointer;text-decoration:none;background:var(--pink);color:#fff;transition:transform .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.ghost{background:transparent;color:inherit;border:1.5px solid currentColor}
+.btn.soft{background:var(--card);color:var(--ink)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.tabs a:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+.grid2{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;margin-top:22px}
+.card{background:var(--card);border-radius:18px;padding:20px}
+.fun .r{display:grid;grid-template-columns:minmax(0,11em) minmax(0,1fr) 3.2em;gap:10px;align-items:center;margin:9px 0;font-size:14px}
+.fun .t{height:14px;border-radius:7px;background:var(--line);overflow:hidden}
+.fun .t i{display:block;height:100%;border-radius:7px;background:linear-gradient(90deg,var(--cyan),var(--pink));width:0;transition:width 1s ease}
+.fun .n{text-align:right;font-weight:700}
+.list{list-style:none;margin:0;padding:0}.list li{padding:10px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;font-size:15px}
+.list li:first-child{border-top:0}
+.tag{font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;background:rgba(254,44,85,.14);color:var(--pink);white-space:nowrap}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:20px}
+.links a{display:block;text-decoration:none;color:var(--ink);background:var(--card);border-radius:16px;padding:16px 18px;transition:transform .15s}
+.links a:hover{transform:translateY(-3px)}.links a b{display:block}.links a span{font-size:14px;color:var(--mut)}
+form .f{display:grid;gap:6px;margin-bottom:14px}
+label{font-weight:600;font-size:14px}
+input,select,textarea{font:16px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;min-height:44px;width:100%}
+textarea{min-height:80px;resize:vertical}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.checks label{display:flex;align-items:center;gap:10px;font-weight:500;min-height:44px;padding:4px 0}
+.checks input{width:22px;min-height:22px;height:22px;accent-color:var(--pink)}
+.score{display:flex;align-items:center;gap:16px;position:sticky;top:76px}
+.ring{width:120px;height:120px;flex:none}
+.msg{margin-top:12px;font-weight:600;font-size:15px}
+details{background:var(--card);border-radius:16px;margin-bottom:10px;padding:0 16px}
+summary{cursor:pointer;font-weight:700;padding:14px 0;min-height:44px}
+details[open] summary{border-bottom:1px solid var(--line);margin-bottom:14px}
+.split{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:22px;align-items:start;margin-top:16px}
+.prev{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;background:var(--card);border-radius:18px;padding:14px}
+.scale{transform-origin:top left}
+.mcard{background:var(--card);border-radius:16px;padding:18px;margin-bottom:12px}
+.mcard p{white-space:pre-wrap;margin:8px 0 12px}
+.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-top:18px}
+.slot{background:var(--card);border-radius:16px;padding:14px;text-align:center}
+.slot .im{aspect-ratio:3/4;border-radius:12px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:10px;color:var(--mut);font-size:14px}
+.slot img{width:100%;height:100%;object-fit:cover}
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s,transform .6s}.reveal.in{opacity:1;transform:none}
+#stage{position:fixed;left:-20000px;top:0}
+@media(max-width:860px){.scw{order:-1}.grid2,.split{grid-template-columns:minmax(0,1fr)}.prev{position:static;max-height:none}.score{position:static}}
+@media(max-width:600px){.two,.three{grid-template-columns:minmax(0,1fr)}.fun .r{grid-template-columns:minmax(0,1fr) 3em}.fun .t{grid-column:1/-1;order:3}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:4px 0 18px}
+.seg button{text-align:left;border:2px solid var(--line);background:var(--bg);color:var(--ink);border-radius:16px;padding:14px 16px;cursor:pointer;font:15px Inter,sans-serif;min-height:44px;transition:border-color .2s,background .2s}
+.seg button b{display:block;font-size:16px}.seg button span{font-size:13px;color:var(--mut)}
+.seg button[aria-selected=true]{border-color:var(--pink);background:rgba(254,44,85,.08)}
+.caps .ch2{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;margin-bottom:12px}.caps h3{margin:0}
+.drops{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px}
+.drop{display:flex;flex-direction:column;gap:2px;cursor:pointer;font-size:14px}
+.drop .dz{display:flex;align-items:center;justify-content:center;border:2px dashed var(--line);border-radius:14px;background:var(--bg);aspect-ratio:9/14;overflow:hidden;color:var(--mut);font-size:30px;font-weight:300;transition:border-color .2s,transform .2s;position:relative}
+.drop.wide .dz{aspect-ratio:auto;height:100%;min-height:150px}
+.drop:hover .dz,.drop.over .dz{border-color:var(--pink);transform:scale(1.02)}
+.drop .dz img{width:100%;height:100%;object-fit:cover}.drop.wide .dz img{object-fit:contain}
+.drop small{color:var(--mut);font-size:12.5px}
+.drop .x .ic{transform:rotate(45deg)}.drop .x{display:flex;align-items:center;justify-content:center;position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(22,24,35,.75);color:#fff;font-size:16px;cursor:pointer}
+@media(max-width:700px){.drops{grid-template-columns:repeat(3,minmax(0,1fr))}.drop.wide{grid-column:1/-1}.drop.wide .dz{min-height:0;aspect-ratio:16/9}}
+
+.ic{flex:none;vertical-align:middle}
+.tabs a{gap:8px}
+.ht3{display:flex;align-items:center;gap:10px}.ht3 .ic{color:var(--pink)}
+.h2i{display:flex;align-items:center;gap:12px}.h2i .ic{color:var(--pink)}
+.status{display:flex;align-items:center;gap:8px;margin:0 0 4px}.live{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:pulse 1.8s infinite}.status.off .live{background:#9ca3af;animation:none}
+@keyframes pulse{70%{box-shadow:0 0 0 9px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.kpi{position:relative}.kpi i{position:absolute;top:14px;right:14px;opacity:.75}
+.links a{display:flex;align-items:center;gap:12px}.links a b{flex:1}.links a>.ic{color:var(--mut)}
+.lic{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(37,244,238,.18),rgba(254,44,85,.18));color:var(--pink);flex:none}
+.list .who{display:flex;align-items:center;gap:8px}.list li .ic{color:var(--pink)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip input{position:absolute;opacity:0;pointer-events:none}
+.chip span{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:8px 14px;border-radius:22px;border:1.5px solid var(--line);font-weight:600;font-size:14px;cursor:pointer;transition:all .2s;background:var(--bg)}
+.chip span .ic{display:none}.chip em{font-style:normal;font-size:12px;color:var(--mut)}
+.chip input:checked+span{background:var(--pink);border-color:var(--pink);color:#fff}.chip input:checked+span .ic{display:inline}.chip input:checked+span em{color:#ffd1da}
+.chip input:focus-visible+span{outline:3px solid var(--cyan);outline-offset:2px}
+details.more{background:transparent;padding:0;margin:4px 0 14px}details.more summary{display:flex;align-items:center;gap:8px;color:var(--pink);border:0;margin:0}
+summary{display:flex;align-items:center;gap:10px;list-style:none}summary::-webkit-details-marker{display:none}summary .ic{color:var(--pink)}
+.seg button{display:flex;align-items:center;gap:12px}.seg button .ic{color:var(--pink)}.seg small{display:block;color:var(--mut);font-size:13px}
+.bar2 .btn{flex:1 1 auto;justify-content:center}
+.drop b{font-size:14px}
+.mcard{display:flex;flex-direction:column}.mh{display:flex;align-items:center;gap:12px}.mh h3{flex:1;margin:0}
+.icb{width:44px;height:44px;border-radius:12px;border:0;background:var(--bg);color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center}.icb.ok{background:#22c55e;color:#fff}
+.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.more2{align-self:flex-start;border:0;background:none;color:var(--pink);font:600 14px Inter,sans-serif;cursor:pointer;min-height:36px;padding:0}
+#msgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.hint{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--mut);margin:-10px 0 0}
+.slot{cursor:pointer;display:block}.slot .im .ic{color:var(--mut)}.slot b{display:block;font-size:14px}
+@media(max-width:700px){
+ .nav{backdrop-filter:none;background:var(--bg)}.nav .navin{padding:10px 16px}
+ .tabs{position:fixed;left:0;right:0;bottom:0;z-index:9;justify-content:space-around;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom));gap:0}
+ .tabs a{flex:1;flex-direction:column;gap:3px;font-size:11px;padding:6px 2px;min-height:52px;justify-content:center}
+ .tabs a[aria-current=page]{background:transparent;color:var(--pink)}
+ .logo span{display:inline}
+ body{padding-bottom:84px}
+ h1{font-size:30px}
+ .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .bar2{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.bar2 .btn{flex-direction:column;gap:4px;font-size:12px;padding:8px 4px;min-height:58px}
+ .seg{grid-template-columns:repeat(2,minmax(0,1fr))}.seg button{padding:12px;flex-direction:column;align-items:flex-start;gap:6px}
+}
+.leg{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut)}.leg i,.who{width:10px;height:10px;border-radius:50%;display:inline-block}.leg i.b2{margin-left:10px}.b1{background:var(--pink)}.b2{background:var(--cyan-d)}
+.ig{margin-top:14px}.igh{display:flex;align-items:center;gap:10px;margin-bottom:10px}.igh b{font-size:15px}.pgc{font-size:12px;color:var(--mut);background:var(--bg);border-radius:20px;padding:3px 10px;white-space:nowrap}.igh .who{margin-left:auto}
+.igr{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px}
+.igr .drop .dz{aspect-ratio:var(--r);min-height:0;height:auto}
+.igr .drop[style*="grid-column"] .dz{max-height:170px;aspect-ratio:auto;height:170px}
+#imgs{display:grid;grid-template-columns:minmax(0,1fr);gap:0 28px}@media(min-width:900px){#imgs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.view{padding-top:clamp(28px,4vw,52px);padding-bottom:96px}
+.card{padding:clamp(20px,2.6vw,30px);border-radius:24px}
+.grid2{gap:clamp(18px,2.4vw,30px);margin-top:clamp(22px,3vw,36px)}
+.links{gap:16px;margin-top:clamp(22px,3vw,36px)}.links a{padding:20px 22px;border-radius:20px}
+form .f{margin-bottom:18px}
+details{padding:0 22px;margin-bottom:14px;border-radius:20px}summary{padding:18px 0}
+.kpis{gap:14px;margin-top:26px}.kpi{padding:18px;border-radius:18px}
+.list li{padding:14px 0}
+.hgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;align-items:center}
+.hill .ill{width:100%;max-width:340px;display:block;margin:auto}
+.phead{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:10px}.phead .gb{margin-bottom:10px}.phead p{margin:0}
+.ill.head{width:clamp(120px,18vw,190px);flex:none}
+.ill.sm{width:120px}
+.list li.empty{flex-direction:column;align-items:center;text-align:center;color:var(--mut);border:0;padding:6px 0}
+.fl1{animation:fl 5s ease-in-out infinite}.fl2{animation:fl 6s ease-in-out -2s infinite}.fl3{animation:fl 4.5s ease-in-out -1s infinite}
+@keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.ill{transition:transform .4s}.ill:hover{transform:scale(1.04) rotate(-1deg)}
+.steps2{list-style:none;padding:0;margin:8px 0 28px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;counter-reset:none}
+.steps2 button{width:100%;display:flex;align-items:center;gap:10px;min-height:52px;padding:10px 14px;border:0;border-radius:16px;background:var(--card);color:var(--mut);font:600 15px Inter,sans-serif;cursor:pointer;transition:background .25s,color .25s}
+.steps2 i{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-style:normal;font-weight:800;background:var(--bg);flex:none}
+.steps2 button.on{background:var(--pink);color:#fff}.steps2 button.on i{background:#fff;color:var(--pink)}
+.steps2 button.done i{background:var(--cyan-d);color:#fff}
+.stp{animation:rise .4s ease both}.stp>.btns{margin-top:28px}
+.stp .seg{margin-bottom:24px}.stp .caps{margin-top:0}
+#slot2[hidden]{display:none}
+.stp[data-p="2"] .split{grid-template-columns:minmax(0,1fr)}
+@media(min-width:1100px){.stp[data-p="2"] .split:has(#slot2:not([hidden])){grid-template-columns:minmax(0,460px) minmax(0,1fr)}}
+.ig{margin-top:22px}.igr{gap:14px}
+@media(max-width:860px){.hgrid{grid-template-columns:minmax(0,1fr)}.hill{order:-1}.hill .ill{max-width:200px;margin:-6px auto 4px}}
+@media(max-width:700px){.steps2 span{display:none}.steps2 button{justify-content:center}.steps2 button.on span{display:inline}.ill.head{width:96px}.phead h2{font-size:26px}}
+@media(prefers-reduced-motion:reduce){.fl1,.fl2,.fl3{animation:none}}
+
+/* ---- hiérarchie */
+.two,.three{column-gap:14px;row-gap:0}
+.chip{position:relative}.chip input{width:1px;height:1px;left:0;top:0}
+.igh{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.igt{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;flex:1}
+.igt b{font-size:15px;line-height:1.25}.igt .pgc{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.igh .who{margin-left:0;flex:none}
+.ig+.ig{margin-top:30px;padding-top:26px;border-top:1px solid var(--line)}
+.igr .drop b{display:block;margin-top:8px;font-size:13px;font-weight:600;line-height:1.3}
+.navb{justify-content:space-between;align-items:center}
+.phead h2{line-height:1.15}
+@media(max-width:700px){
+ .view{padding-left:18px;padding-right:18px}
+ .grid2>*+*,.split>*+*{margin-top:0}
+ .card{padding:20px}
+ .hero .btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px}.hero .btns .btn:first-child{grid-column:1/-1}.hero .btns .btn{justify-content:center;min-height:50px}
+ .hero h1{margin-top:6px}
+ .phead{align-items:flex-start;margin-bottom:22px}.ill.head{width:84px;margin-top:2px}
+ .phead .gb{margin:10px 0 12px}
+ .steps2{gap:8px;margin:0 0 26px}
+ .steps2 button{flex-direction:column;gap:6px;min-height:72px;padding:10px 6px;justify-content:center}
+ .steps2 span,.steps2 button.on span{display:block;font-size:12px;line-height:1.2;text-align:center}
+ .stp .seg{gap:10px;margin-bottom:22px}
+ .igr{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+ .navb{display:grid;grid-template-columns:1fr;gap:12px}
+ .navb>.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .navb .btn{justify-content:center;min-height:50px;width:100%}
+ .navb.nb2{grid-template-columns:1fr 1.6fr}
+ .bar2{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+ details{padding:0 18px}
+ .msgs,.mgrid{gap:16px}
+}
+
+/* ================= STYLE APPLE (iOS) ================= */
+:root{--sf:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Inter,system-ui,sans-serif;
+ --bg:light-dark(#f2f2f7,#000);--card:light-dark(#fff,#1c1c1e);--fill:light-dark(rgba(118,118,128,.12),rgba(118,118,128,.24));
+ --ink:light-dark(#000,#fff);--mut:light-dark(rgba(60,60,67,.6),rgba(235,235,245,.6));--line:light-dark(rgba(60,60,67,.16),rgba(84,84,88,.55));
+ --pink:#ff2d55;--cyan-d:#30b0c7;--green:#34c759;--blue:#007aff;--orange:#ff9500;--indigo:#5856d6;--teal:#30b0c7;--purple:#af52de}
+body{font-family:var(--sf);-webkit-font-smoothing:antialiased;letter-spacing:-.01em;background:var(--bg)}
+button,input,select,textarea,.btn,.more2,.seg button,.steps2 button,.chip span{font-family:var(--sf)!important}
+/* navigation */
+.nav{background:color-mix(in srgb,var(--bg) 80%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:.5px solid var(--line)}
+.logo{font-weight:700;font-size:17px}.logo i{border-radius:6px}
+.tabs{background:var(--fill);border-radius:12px;padding:3px;gap:2px;margin-left:auto}
+.tabs a{min-height:36px;padding:6px 14px;border-radius:9px;font-size:14px;font-weight:500;color:var(--ink)}
+.tabs a[aria-current=page]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.12),0 0 1px rgba(0,0,0,.08)}
+/* titres */
+h1{font-size:clamp(34px,4.6vw,48px);font-weight:700;letter-spacing:-.025em}
+h2{font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1.12}
+h3{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.gb{display:none}
+.h2i .ic{display:none}.h2i{gap:0}
+.phead{margin-bottom:22px}.phead p,.phead .hint{margin-top:6px!important;color:var(--mut);font-size:15px}
+.ht3 .ic,summary .ic,.seg button .ic,.list li .ic{color:var(--pink)}
+/* cartes */
+.card,details,.mcard,.links a,.prev{background:var(--card);border-radius:20px}
+.card{padding:22px}
+/* accueil */
+.hero{background:none;color:var(--ink);padding:0;border-radius:0;overflow:visible}
+.hero .mut,.status{color:var(--mut)}
+.kpis{gap:12px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.kpi{background:var(--card);border:0;border-radius:18px;padding:16px 16px 14px}
+.kpi b{font-size:30px;font-weight:700;color:var(--ink);margin-top:26px}
+.kpi span{color:var(--mut);font-size:13px;font-weight:500}
+.kpi i{opacity:1;top:14px;left:16px;right:auto;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--blue)}
+.kpi i .ic{width:17px;height:17px}
+.kpi:nth-child(2) i{background:var(--indigo)}.kpi:nth-child(3) i{background:var(--orange)}.kpi:nth-child(4) i{background:var(--green)}.kpi:nth-child(5) i{background:var(--teal)}.kpi:nth-child(6) i{background:var(--pink)}
+.kpi.hot{background:var(--card);box-shadow:inset 0 0 0 2px var(--pink)}
+.fun .t{background:var(--fill)}.fun .t i{background:var(--pink)}
+.tag{background:rgba(255,45,85,.12)}
+/* liste groupée (raccourcis Sheet) */
+.links{grid-template-columns:minmax(0,1fr)!important;gap:0!important;background:var(--card);border-radius:20px;overflow:hidden}
+.links a{border-radius:0!important;background:transparent;padding:12px 18px!important;min-height:58px;position:relative}
+.links a+a::before{content:"";position:absolute;top:0;left:70px;right:0;border-top:.5px solid var(--line)}
+.links a:hover{transform:none;background:var(--fill)}
+.links a b{font-weight:500;font-size:17px}
+.links a>.ic:last-child{color:rgba(60,60,67,.3)}
+@media(min-width:861px){.links{grid-template-columns:repeat(2,minmax(0,1fr))!important}.links a:nth-child(3)::before,.links a:nth-child(2)::before{left:70px}.links a:nth-child(2)::before{border:0}}
+/* pastilles d'icônes façon Réglages */
+.lic{width:32px;height:32px;border-radius:9px;background:var(--pink);color:#fff}
+.lic .ic{width:18px;height:18px}
+.links a:nth-child(1) .lic{background:var(--blue)}.links a:nth-child(2) .lic{background:var(--orange)}.links a:nth-child(3) .lic{background:var(--green)}.links a:nth-child(4) .lic{background:var(--indigo)}
+.mcard:nth-child(6n+1) .lic{background:var(--blue)}.mcard:nth-child(6n+2) .lic{background:var(--orange)}.mcard:nth-child(6n+3) .lic{background:var(--purple)}.mcard:nth-child(6n+4) .lic{background:var(--green)}.mcard:nth-child(6n+5) .lic{background:var(--teal)}.mcard:nth-child(6n) .lic{background:var(--pink)}
+/* boutons */
+.btn{border-radius:999px;min-height:48px;padding:12px 22px;font-weight:600;font-size:16px;box-shadow:none}
+.btn:hover{transform:none;filter:brightness(1.06)}.btn:active{transform:scale(.97)}
+.btn.soft,.btn.tint,.btn.ghost{background:var(--fill);color:var(--pink);border:0}
+.icb{background:var(--fill);color:var(--pink);border-radius:50%;width:38px;height:38px}
+.more2{color:var(--pink);font-weight:500}
+/* formulaires */
+label{font-size:13px;font-weight:500;color:var(--mut)}
+input,select,textarea{background:var(--fill);border:0;border-radius:12px;min-height:46px;padding:11px 14px;font-size:17px}
+input:focus,select:focus,textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(255,45,85,.25);background:var(--card)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.tabs a:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.45)}
+.chip span{background:var(--fill);border:0;font-weight:500;font-size:15px;min-height:40px;color:var(--ink)}
+.chip input:checked+span{background:var(--pink);color:#fff}
+details{padding:0 20px}summary{font-weight:600;font-size:17px;padding:16px 0}
+details[open] summary{border-bottom:.5px solid var(--line)}
+/* contrôle segmenté */
+.seg{background:var(--fill);border-radius:16px;padding:4px;gap:4px}
+.seg button{border:0;background:transparent;border-radius:13px;padding:12px 14px}
+.seg button[aria-selected=true]{background:var(--card);box-shadow:0 3px 8px rgba(0,0,0,.12),0 0 1px rgba(0,0,0,.1)}
+.seg button b{font-weight:600}
+.steps2{background:var(--fill);border-radius:16px;padding:4px;gap:4px}
+.steps2 button{background:transparent;border-radius:13px;color:var(--mut);font-weight:500;min-height:46px}
+.steps2 i{background:transparent;border:1.5px solid currentColor;width:24px;height:24px;font-size:13px}
+.steps2 button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.12),0 0 1px rgba(0,0,0,.1)}
+.steps2 button.on i{background:var(--pink);border-color:var(--pink);color:#fff}
+.steps2 button.done i{background:var(--green);border-color:var(--green);color:#fff}
+/* images */
+.drop .dz{background:var(--fill);border:1.5px dashed rgba(60,60,67,.22);border-radius:14px}
+.drop:hover .dz,.drop.over .dz{border-color:var(--pink);transform:none}
+.pgc{background:var(--fill);color:var(--mut);font-weight:500}
+.ig+.ig{border-top:.5px solid var(--line)}
+.prev{background:var(--fill)}
+/* barre d'onglets iPhone */
+@media(max-width:700px){
+ h2{font-size:30px}
+ .tabs{background:color-mix(in srgb,var(--card) 80%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-radius:0;border-top:.5px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom));margin:0}
+ .tabs a{font-size:10.5px;font-weight:500;color:rgba(60,60,67,.6);min-height:50px;border-radius:0;box-shadow:none!important;background:transparent!important}
+ .tabs a .ic{width:24px;height:24px}
+ .tabs a[aria-current=page]{color:var(--pink)}
+ .nav{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}
+ .kpi b{font-size:26px}
+ .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .card{padding:18px}
+ .btn{min-height:50px}
+ .steps2 button{min-height:62px}
+}
+@media(prefers-color-scheme:dark){.drop .dz{border-color:rgba(235,235,245,.2)}}
+
+/* formulaire prospect allégé */
+.pform .gh{margin:0 0 8px 16px;font-size:13px;font-weight:500;color:var(--mut);text-transform:uppercase;letter-spacing:.02em}
+.pform .gh span{text-transform:none;letter-spacing:0;opacity:.8;margin-left:6px}
+.pform .gh:not(:first-child){margin-top:26px}
+.pform .gcard{padding:18px}
+.pform .gd{margin:14px 0 0;padding:0 18px}
+.pform .gd:first-of-type{margin-top:26px}
+.pform .gd summary{font-size:16px;font-weight:500;justify-content:flex-start}
+.pform .gd summary::after{content:"";margin-left:auto;width:8px;height:8px;border-right:2px solid rgba(60,60,67,.35);border-bottom:2px solid rgba(60,60,67,.35);transform:rotate(-45deg);transition:transform .2s}
+.pform .gd[open] summary::after{transform:rotate(45deg)}
+.pform .gdb{padding:2px 0 18px}
+.pform .gd[open] summary{margin-bottom:14px}
+.btn.wide{width:100%;justify-content:center;margin-top:26px}
+
+/* ---- page prospect : mise en page */
+.pgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,400px);gap:28px;align-items:start}
+.pcol{display:flex;flex-direction:column;gap:20px}.pa-pipe{margin-top:8px}
+.pgrid .card h3{margin-bottom:16px}
+.sc-top{display:flex;align-items:center;gap:18px}.sc-top .ring{width:112px;height:112px}
+.ey{display:block;font-size:12px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+#dec{display:block;font-size:24px;font-weight:700;margin:2px 0 4px}
+.zone{margin-top:20px}.zt{position:relative;display:flex;gap:4px;height:8px}.zt i{border-radius:4px;background:var(--fill)}.zt i+i{background:rgba(255,45,85,.25)}
+#zm{position:absolute;top:50%;width:18px;height:18px;border-radius:50%;background:var(--card);box-shadow:0 1px 4px rgba(0,0,0,.25);transform:translate(-50%,-50%);transition:left .5s}
+.zl{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:8px}.zl span:nth-child(2){margin-left:auto;margin-right:auto;transform:translateX(10%)}
+.dr{display:grid;grid-template-columns:minmax(0,1fr) 90px 28px;gap:12px;align-items:center;padding:8px 0;font-size:14px;color:var(--mut)}
+.dr.on{color:var(--ink)}.dr b{text-align:right;font-size:13px}.dr.on b{color:var(--pink)}
+.dt{height:8px;border-radius:4px;background:var(--fill);overflow:hidden}.dt i{display:block;height:100%;border-radius:4px;background:var(--pink);transition:width .4s}
+.pst{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.pst div{background:var(--fill);border-radius:14px;padding:12px}.pst b{display:block;font-size:22px;font-weight:700}.pst span{font-size:12px;color:var(--mut)}
+.pdn{display:flex;align-items:center;gap:18px}.donut{width:120px;height:120px;flex:none}
+.leg2{list-style:none;margin:0;padding:0;flex:1;font-size:13.5px}.leg2 li{display:flex;align-items:center;gap:8px;padding:4px 0}.leg2 i{width:10px;height:10px;border-radius:50%;flex:none}.leg2 span{flex:1}
+.pempty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;color:var(--mut);font-size:14px;padding:6px 0}
+#rec li{align-items:center;padding:10px 0;border-top:.5px solid var(--line)}#rec li:first-child{border:0}
+#rec .who{gap:12px;flex:1;min-width:0;align-items:center}#rec .who>span:last-child{display:block;min-width:0;line-height:1.3}#rec small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#rec .who b{display:block;font-size:15px;font-weight:600}#rec small{color:var(--mut);font-size:12.5px}
+.avt{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#ff2d55,#ff9500);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.pill{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:20px;background:var(--fill);color:var(--mut)}.pill.hot{background:rgba(255,45,85,.12);color:var(--pink)}
+
+@media(max-width:860px){.pgrid{display:flex;flex-direction:column;gap:20px}.pcol{display:contents}.pcol>*{width:100%;align-self:stretch}.pst span{font-size:11.5px}.pst div{padding:10px}.pst b{font-size:20px}.pa-score{order:1}.pa-form{order:2}.pa-det{order:3}.pa-pipe{order:4;margin-top:0}.pa-rec{order:5}}
+@media(max-width:700px){.sc-top .ring{width:92px;height:92px}#dec{font-size:21px}.dr{grid-template-columns:minmax(0,1fr) 64px 26px;gap:10px}.donut{width:104px;height:104px}}
+
+#lockv{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}#lockv[hidden]{display:none}
+.lkc{width:min(400px,100%);background:var(--card);border-radius:24px;padding:30px 24px;text-align:center}.lkc .f{text-align:left;margin-bottom:16px}
+.lki{width:64px;height:64px;border-radius:18px;background:var(--pink);display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+.lkc h2{font-size:26px;margin:0}.lkc>p.mut{margin:6px 0 22px}.lkc .btn.wide{margin-top:8px}#gbtn{display:flex;justify-content:center;min-height:44px}#lk_sign .more2{align-self:center}
+#lockbtn{border:0;background:var(--fill);color:var(--ink);width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin-left:10px}
+@media(max-width:700px){#lockbtn{margin-left:auto}}
+/* ---- pages du rapport (A4 à 96 dpi) ---- */
+.rp{width:794px;height:1123px;background:#fff;color:#161823;padding:60px 60px 52px;position:relative;overflow:hidden;font:14px/1.45 Inter,sans-serif;margin:0 auto 16px;box-shadow:0 4px 18px rgba(0,0,0,.12)}
+.rp .num{font-weight:700;color:#6b6f7b;letter-spacing:.08em;font-size:14px}
+.rp h2{font-size:38px;font-weight:800;letter-spacing:-.03em;margin:4px 0 6px;color:#161823}
+.rp .bar{height:8px;width:300px;border-radius:8px;background:linear-gradient(90deg,#25f4ee,#fe2c55);margin-bottom:26px}
+.rp .lead{font-size:16px;margin:0 0 18px}
+.rp .c{background:#f4f4f6;border-radius:16px;padding:18px 22px;margin-bottom:14px}
+.rp .c.g{background:linear-gradient(110deg,#e6fbfa,#ffe9ee)}.rp .c.d{background:#161823;color:#fff}.rp .c.d .lab{color:#25f4ee}
+.rp .c.dash{background:#fff;border:2px dashed #fe2c55}
+.rp .lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b6f7b;margin-bottom:8px}
+.rp .ok{color:#16a34a}.rp .ko{color:#fe2c55}
+.rp .big{font-size:18px;font-weight:700;margin:0 0 4px}
+.rp p{margin:0 0 6px}.rp .m{color:#6b6f7b;font-size:12px}
+.rp .row{display:flex;gap:14px}.rp .row>*{flex:1}
+.rp .crit{background:#f4f4f6;border-radius:12px;padding:11px 16px;margin-bottom:9px}
+.rp .ch{display:flex;justify-content:space-between}.rp .sc{font-size:20px;font-weight:800;color:#fe2c55}
+.rp .tr{height:7px;background:#fff;border-radius:4px;margin:6px 0}.rp .tr i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#25f4ee,#fe2c55)}
+.rp .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.rp .tile{background:#f4f4f6;border-radius:12px;padding:14px}.rp .tile.h{background:#ffe9ee}
+.rp .tv{font-size:26px;font-weight:800}.rp .tl{font-size:11.5px;color:#6b6f7b;font-weight:600}
+.rp .ph{border:2px dashed #c9c9d1;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#6b6f7b;font-weight:600;background:#fafafb;overflow:hidden;text-align:center;font-size:12px}
+.rp .ph img{width:100%;height:100%;object-fit:cover}
+.rp table{width:100%;border-collapse:collapse;font-size:13px}.rp th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#6b6f7b;padding:4px 6px}
+.rp td{padding:8px 6px;border-top:1px solid #e4e4e8;vertical-align:top}.rp .av{color:#6b6f7b;width:45%}.rp .ap{color:#fe2c55;font-weight:700}
+.rp .foot{position:absolute;left:60px;right:60px;bottom:26px;display:flex;justify-content:space-between;font-size:10px;color:#6b6f7b}
+.rp .pn{width:32px;height:32px;border-radius:50%;background:#fe2c55;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none}
+.rp .wa{display:inline-block;background:#fe2c55;color:#fff;font-weight:800;padding:12px 26px;border-radius:12px;text-decoration:none;font-size:16px;margin:6px 0 12px}
+</style>
+</head>
+<body>
+<div id="lockv" hidden><div class="lkc"><div class="lki"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+<h2>Royal Audit</h2>
+<form id="lk_setup" hidden><p class="mut">Première ouverture sur cet appareil : deux réglages, une seule fois.</p>
+<div class="f"><label for="lk_url">Adresse du script Google</label><input id="lk_url" required placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+<div class="f"><label for="lk_cid">ID client Google</label><input id="lk_cid" required placeholder="….apps.googleusercontent.com" autocomplete="off"></div>
+<button class="btn wide" type="submit"><span>Continuer</span></button></form>
+<div id="lk_sign" hidden><p class="mut">Espace privé. Connecte-toi avec un compte Google autorisé.</p><div id="gbtn"></div><button type="button" class="more2" id="lk_reset" style="margin-top:18px">Modifier les réglages</button></div>
+<p class="msg" id="lk_msg" role="status"></p></div></div>
+<nav class="nav"><div class="navin"><div class="logo"><i></i><span>Royal Audit</span></div>
+<div class="tabs" id="tabs"><a href="#accueil" data-ic="home"><span>Accueil</span></a><a href="#prospect" data-ic="userPlus"><span>Prospect</span></a><a href="#rapport" data-ic="report"><span>Rapport</span></a><a href="#messages" data-ic="chat"><span>Messages</span></a></div><button id="lockbtn" type="button" aria-label="Verrouiller" title="Verrouiller"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button></div></nav>
+
+<section class="view" id="v-accueil">
+ <div class="hero"><div class="hgrid"><div>
+  <h1 id="hello">Bonjour</h1>
+  <div class="status" id="stw"><span class="live"></span><span id="st">Connexion au Google Sheet…</span></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="btns"><a class="btn" id="openSheet" href="#" data-ic="sheet"><span>Google Sheet</span></a><a class="btn tint" href="#prospect" data-ic="userPlus"><span>Prospect</span></a><a class="btn tint" href="#rapport" data-ic="report"><span>Rapport</span></a></div>
+ </div><div class="hill"><svg class="ill" viewBox="0 0 320 300" aria-hidden="true"><defs><linearGradient id="lg1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#25f4ee"/><stop offset="1" stop-color="#fe2c55"/></linearGradient></defs>
+<circle cx="170" cy="150" r="118" fill="url(#lg1)" opacity=".18"/>
+<g class="fl1"><rect x="105" y="30" width="130" height="240" rx="24" fill="#fff"/><rect x="105" y="30" width="130" height="240" rx="24" fill="none" stroke="var(--line)" stroke-width="2"/>
+<circle cx="170" cy="72" r="16" fill="url(#lg1)"/><rect x="138" y="96" width="64" height="7" rx="3.5" fill="#e4e4e8"/><rect x="148" y="108" width="44" height="6" rx="3" fill="#e4e4e8"/>
+<g fill="#f1f1f4"><rect x="119" y="126" width="31" height="44" rx="5"/><rect x="155" y="126" width="31" height="44" rx="5" fill="#ffd1da"/><rect x="191" y="126" width="31" height="44" rx="5"/><rect x="119" y="176" width="31" height="44" rx="5" fill="#c9fbf9"/><rect x="155" y="176" width="31" height="44" rx="5"/><rect x="191" y="176" width="31" height="44" rx="5" fill="#ffd1da"/></g></g>
+<g class="fl2"><circle cx="235" cy="190" r="34" fill="#fff" fill-opacity=".35" stroke="var(--ink)" stroke-width="9"/><path d="M259 214l26 26" stroke="var(--ink)" stroke-width="12" stroke-linecap="round"/></g>
+<g class="fl3"><rect x="20" y="70" width="86" height="40" rx="14" fill="#fe2c55"/><path d="M38 90l6 6 11-12" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="62" y="84" width="30" height="5" rx="2.5" fill="#fff" opacity=".8"/><rect x="62" y="93" width="20" height="5" rx="2.5" fill="#fff" opacity=".6"/></g>
+<g class="fl1"><path d="M262 66c-6-8-20-4-18 7 2 8 18 18 18 18s16-10 18-18c2-11-12-15-18-7z" fill="#fe2c55"/></g>
+<g class="fl2"><path d="M44 200l5 11 12 2-9 8 2 12-10-6-11 6 2-12-9-8 12-2z" fill="#25f4ee"/></g></svg></div></div></div>
+ <div class="grid2">
+  <div class="card reveal"><h3 class="ht3" data-ic="funnel">Entonnoir</h3><div class="fun" id="fun"><p class="mut sm">En attente des données…</p></div></div>
+  <div class="card reveal"><h3 class="ht3" data-ic="bell">Relances dues</h3><ul class="list" id="rel"><li class="mut">Chargement…</li></ul></div>
+ </div>
+ <div class="links reveal" id="links"></div>
+</section>
+
+<section class="view" id="v-prospect">
+ <div class="phead"><div><h2 class="h2i" data-ic="userPlus" data-s="28">Nouveau prospect</h2><div class="gb"></div><p class="mut">Qualifie en un coup d'œil.</p></div><svg class="ill head" viewBox="0 0 220 150" aria-hidden="true"><defs><linearGradient id="lg1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#25f4ee"/><stop offset="1" stop-color="#fe2c55"/></linearGradient></defs><circle cx="110" cy="80" r="62" fill="url(#lg1)" opacity=".15"/><g class="fl1"><circle cx="110" cy="80" r="46" fill="none" stroke="#fe2c55" stroke-width="8" opacity=".25"/><circle cx="110" cy="80" r="30" fill="none" stroke="#fe2c55" stroke-width="8" opacity=".5"/><circle cx="110" cy="80" r="13" fill="#fe2c55"/></g><g class="fl2"><path d="M178 22l-58 52" stroke="var(--ink)" stroke-width="5" stroke-linecap="round"/><path d="M168 16l14 2 2 14" stroke="var(--ink)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><g class="fl3"><circle cx="40" cy="40" r="16" fill="#25f4ee" opacity=".8"/><path d="M33 40l5 5 9-9" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></g></svg></div>
+ <div class="pgrid">
+ <div class="pcol"><div class="pa-form"><form id="pf" class="pform">
+  <p class="gh">Le compte</p>
+  <div class="card gcard"><div class="f"><label for="p_compte">Compte TikTok</label><input id="p_compte" required placeholder="@nom.du.compte"></div>
+  <div class="f" style="margin:0"><label for="p_niche">Niche</label><input id="p_niche" placeholder="Ex. cosmétiques"></div></div>
+  <p class="gh">Ce que tu vois <span>touche pour cocher</span></p>
+  <div class="card gcard"><div class="chips" id="crit"></div></div>
+  <details class="gd"><summary data-ic="send">Contact</summary><div class="gdb">
+   <div class="two"><div class="f"><label for="p_dc">Date du 1er contact</label><input id="p_dc" type="date"></div><div class="f"><label for="p_canal">Canal</label><select id="p_canal"></select></div></div>
+   <div class="two"><div class="f"><label for="p_rep">Réponse</label><select id="p_rep"></select></div><div class="f"><label for="p_statut">Statut</label><select id="p_statut"></select></div></div></div></details>
+  <details class="gd"><summary data-ic="plus">Plus de détails</summary><div class="gdb">
+   <div class="two"><div class="f"><label for="p_ville">Ville</label><input id="p_ville" value="Abidjan"></div><div class="f"><label for="p_ab">Abonnés</label><input id="p_ab" type="number" min="0" inputmode="numeric"></div></div>
+   <div class="f"><label for="p_src">Source</label><select id="p_src"></select></div>
+   <div class="f"><label for="p_lien">Lien du profil</label><input id="p_lien" placeholder="https://www.tiktok.com/@…"></div><div class="f"><label for="p_sig">Signaux repérés</label><textarea id="p_sig"></textarea></div><div class="two"><div class="f"><label for="p_na">Prochaine action</label><input id="p_na"></div><div class="f"><label for="p_nd">Date</label><input id="p_nd" type="date"></div></div><div class="f" style="margin:0"><label for="p_notes">Notes</label><textarea id="p_notes"></textarea></div></div></details>
+  <button class="btn wide" type="submit" data-ic="sheet"><span>Ajouter au Sheet</span></button>
+  <div class="msg" id="pmsg" role="status"></div>
+ </form></div>
+<div class="card pa-pipe"><h3 class="ht3" data-ic="funnel">Ton pipeline</h3><div id="pipe"></div></div></div>
+ <div class="pcol"><div class="card pa-score"><div class="sc-top"><svg class="ring" viewBox="0 0 120 120" id="ring"></svg><div><span class="ey">Score du prospect</span><b id="dec">À écarter</b><p class="mut sm" id="dech">Coche ce que tu vois sur le profil.</p></div></div>
+  <div class="zone"><div class="zt"><i style="flex:6"></i><i style="flex:4"></i><span id="zm"></span></div><div class="zl"><span>0 · À écarter</span><span>6 · À contacter</span><span>10</span></div></div></div>
+<div class="card pa-det"><h3 class="ht3" data-ic="star">Détail des points</h3><div id="det"></div></div>
+<div class="card pa-rec"><h3 class="ht3" data-ic="users">Derniers ajoutés</h3><ul class="list" id="rec"></ul></div></div>
+</div>
+</section>
+
+<section class="view" id="v-rapport">
+ <div class="phead"><div><h2 class="h2i" data-ic="report" data-s="28">Rapport d'audit</h2><div class="gb"></div></div><svg class="ill head" viewBox="0 0 220 150" aria-hidden="true"><defs><linearGradient id="lg1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#25f4ee"/><stop offset="1" stop-color="#fe2c55"/></linearGradient></defs><circle cx="110" cy="78" r="62" fill="url(#lg1)" opacity=".15"/><g class="fl1"><rect x="62" y="22" width="86" height="112" rx="10" fill="var(--bg)" stroke="var(--line)" stroke-width="2"/><rect x="74" y="36" width="46" height="8" rx="4" fill="var(--ink)"/><rect x="74" y="50" width="34" height="5" rx="2.5" fill="url(#lg1)"/><rect x="74" y="96" width="12" height="26" rx="3" fill="#ffd1da"/><rect x="92" y="84" width="12" height="38" rx="3" fill="#fe2c55"/><rect x="110" y="72" width="12" height="50" rx="3" fill="#fe2c55"/><rect x="128" y="90" width="12" height="32" rx="3" fill="#c9fbf9"/></g><g class="fl2"><circle cx="164" cy="44" r="20" fill="#fe2c55"/><path d="M164 34v14M158 44l6 6 6-6" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g></svg></div>
+ <ol class="steps2" id="steps"><li><button type="button" data-st="1"><i>1</i><span>Type et images</span></button></li><li><button type="button" data-st="2"><i>2</i><span>Analyse</span></button></li><li><button type="button" data-st="3"><i>3</i><span>Rapport</span></button></li></ol>
+ <div class="stp" data-p="1">
+ <div class="seg" role="tablist" id="seg"><button type="button" data-t="prospection" role="tab"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg><span><b>Audit express</b><small>Prospection</small></span></button><button type="button" data-t="accompagnement" role="tab"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg><span><b>Accompagnement</b><small>Après achat</small></span></button></div>
+  <div class="card caps"><div class="ch2"><h3 class="ht3" data-ic="image">Images du rapport</h3><span class="leg"><i class="b1"></i>Ce client<i class="b2"></i>Tous les rapports</span></div>
+  <div id="imgs"></div><div class="msg" id="upmsg" role="status"></div></div>
+  <div class="btns navb"><div class="btns" style="margin:0"><button class="btn soft" id="newc" data-ic="filePlus"><span>Nouveau</span></button><button class="btn soft" id="reset" data-ic="redo"><span>Exemple</span></button></div><button class="btn" data-go="2" data-ic="arrow"><span>Suivant</span></button></div>
+ </div>
+ <div class="stp" data-p="2" hidden><div class="split"><form id="rf"></form><div id="slot2"></div></div>
+  <div class="btns navb nb2"><button class="btn soft" data-go="1"><span>Retour</span></button><button class="btn" data-go="3" data-ic="arrow"><span>Voir le rapport</span></button></div></div>
+ <div class="stp" data-p="3" hidden>
+  <div class="btns bar2"><button class="btn" id="dl" data-ic="dl"><span>Télécharger</span></button><button class="btn soft" id="toSheet" data-ic="sheet"><span>Enregistrer</span></button><button class="btn soft" data-go="2"><span>Modifier</span></button></div>
+  <div class="msg" id="rmsg" role="status"></div>
+  <div id="slot3"><div class="prev" id="prev"><div class="scale" id="sc"></div></div></div></div>
+</section>
+
+<section class="view" id="v-messages">
+ <div class="phead"><div><h2 class="h2i" data-ic="chat" data-s="28">Messages</h2><div class="gb"></div><p class="hint" data-ic="info" data-s="16" style="margin:0"><span>Remplace les [crochets]</span></p></div><svg class="ill head" viewBox="0 0 220 150" aria-hidden="true"><defs><linearGradient id="lg1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#25f4ee"/><stop offset="1" stop-color="#fe2c55"/></linearGradient></defs><circle cx="110" cy="78" r="62" fill="url(#lg1)" opacity=".15"/><g class="fl1"><rect x="34" y="34" width="110" height="52" rx="18" fill="#fe2c55"/><path d="M52 86l-6 16 20-16z" fill="#fe2c55"/><rect x="52" y="52" width="64" height="6" rx="3" fill="#fff"/><rect x="52" y="64" width="44" height="6" rx="3" fill="#fff" opacity=".7"/></g><g class="fl2"><rect x="92" y="80" width="96" height="46" rx="16" fill="var(--bg)" stroke="var(--line)" stroke-width="2"/><circle cx="118" cy="103" r="5" fill="var(--mut)"/><circle cx="140" cy="103" r="5" fill="var(--mut)"/><circle cx="162" cy="103" r="5" fill="var(--mut)"/></g></svg></div>
+ <div id="msgs" style="margin-top:16px"></div>
+</section>
+
+
+<div id="stage"></div>
+<script type="application/json" id="exP">{"compte": "@boutique.exemple", "nom": "Boutique Exemple", "niche": "Cosmétiques naturels", "ville": "Abidjan", "date": "24 novembre 2026", "contenus": [{"titre": "Démonstration de la crème hydratante", "note": "Belle texture visible, mais l'accroche commence par « Bonjour mes chéries »."}, {"titre": "Vidéo danse sans lien avec les produits", "note": "Beaucoup de vues, aucune question sur les produits."}, {"titre": "Avant/après d'une cliente", "note": "Meilleure vidéo du mois : à refaire avec un appel à l'action."}], "auditeur": {"nom": "Mohamed Nabi", "titre": "Superviseur de l'équipe interne de 1000 Vendeurs · Responsable du programme Royal Freelance", "tiktok": "@mohamednabiofficiel", "whatsapp": "+225 01 61 18 26 28", "wa_lien": "https://wa.me/2250161182628", "email": "equipe4com1000vendeurs@gmail.com", "mission": "Accompagner les jeunes débrouillards, les vendeurs sur TikTok et celles et ceux qui veulent entreprendre, pour qu'ils se forment et atteignent leurs résultats."}, "exemples": {"bio_avant": "Dieu d'abord · Ma vie, mes passions · Bienvenue chez moi", "bio_apres": "Soins naturels pour peaux noires · Livraison Abidjan en 24 h · Commande sur WhatsApp ↓", "accroches": [["Bonjour mes chéries, aujourd'hui je vous présente ma crème.", "Ta peau tire après la douche ? Regarde ce qui change en 7 jours."], ["Coucou la famille, nouvel arrivage !", "3 savons qui partent en 2 jours chaque semaine. Voici pourquoi."], ["Alors aujourd'hui on va parler du karité.", "L'erreur que tout le monde fait avec le beurre de karité."]], "cta": "Écris CRÈME en message, je te réponds en moins de 2 heures.", "reponse_type": "Bonjour ! La crème hydratante est à 8 000 F. Pour quel type de peau ? Je te livre à Yopougon demain si tu commandes avant 18 h."}, "type": "prospection", "nb_videos": 10, "criteres": [{"nom": "Profil et bio", "question": "La page dit-elle ce qu'elle vend et à qui ?", "note": 2, "obs": "La bio parle de la vie de la gérante, pas des produits. Aucun moyen de contact visible."}, {"nom": "Régularité", "question": "Rythme et horaires de publication", "note": 4, "obs": "5 vidéos par semaine depuis un mois : bon rythme, à garder."}, {"nom": "Accroche des vidéos", "question": "3 premières secondes, texte à l'écran, miniature", "note": 1, "obs": "8 vidéos sur 10 commencent par « Bonjour mes chéries ». Pas de texte d'accroche à l'écran."}, {"nom": "Contenu et valeur", "question": "Éduque ou montre seulement le produit ?", "note": 3, "obs": "Belles démonstrations, mais 8 vidéos sur 16 sans lien avec les produits."}, {"nom": "Appel à l'action", "question": "Dit quoi faire, achat simple, preuves", "note": 1, "obs": "Aucune vidéo ne dit comment commander. Aucun avis client montré."}, {"nom": "Engagement", "question": "Vues visibles, commentaires, réponses", "note": 2, "obs": "14 questions de prix sans réponse dans les commentaires des dernières vidéos."}], "forces": ["Démonstrations claires : on voit bien la texture des produits", "Publication régulière depuis un mois", "Bonne lumière et son correct"], "blocages": [{"titre": "On ne sait pas comment commander", "impact": "Des clientes intéressées repartent sans écrire.", "solution": "Livre « Comment transformer TikTok en machine à cash » + formation : transformer un profil en vitrine qui vend"}, {"titre": "Les 3 premières secondes ne retiennent pas", "impact": "Vos vidéos s'arrêtent avant de montrer le produit.", "solution": "Formation : écrire des accroches et des scripts qui retiennent"}, {"titre": "Les questions de prix restent sans réponse", "impact": "Chaque question ignorée est une vente laissée au concurrent.", "solution": "Livre « Live et Vends » : répondre et vendre en direct"}], "action_semaine": "Réécrire la bio avec un lien WhatsApp, puis répondre aux 14 questions de prix en attente dans les commentaires.", "sept_jours": ["Votre bio dit-elle ce que vous vendez et comment commander ?", "Vos 3 vidéos épinglées montrent-elles votre produit phare, un avis client et comment acheter ?", "Chaque vidéo de vente finit-elle par une consigne claire (« Écris CRÈME en message ») ?"], "pack": {"titre": "Le pack TikTok de 1000 Vendeurs", "contenu": ["3 livres de Loukou Koffi : Comment transformer TikTok en machine à cash, Live et Vends, Vendre sur TikTok sans se faire bannir", "La formation Royal Freelance", "Un audit d'accompagnement de votre page, offert", "Un point de suivi après 30 jours"], "prix": ""}, "date_iso": "2026-11-24", "suivi_iso": "2026-12-24", "img": {}}</script>
+<script type="application/json" id="exA">{"compte": "@boutique.exemple", "nom": "Boutique Exemple", "niche": "Cosmétiques naturels", "ville": "Abidjan", "date": "24 novembre 2026", "periode": "28 derniers jours (du 27 octobre au 23 novembre 2026)", "objectif": "Atteindre 15 commandes par semaine grâce à TikTok", "abonnes": 2400, "criteres": [{"nom": "Profil et bio", "question": "La page dit-elle ce qu'elle vend et à qui ?", "note": 2, "obs": "La bio parle de la vie de la gérante, pas des produits. Aucun moyen de contact visible."}, {"nom": "Régularité", "question": "Rythme et horaires de publication", "note": 4, "obs": "5 vidéos par semaine depuis un mois : bon rythme, à garder."}, {"nom": "Accroche des vidéos", "question": "3 premières secondes, texte à l'écran, miniature", "note": 1, "obs": "8 vidéos sur 10 commencent par « Bonjour mes chéries ». Pas de texte d'accroche à l'écran."}, {"nom": "Contenu et valeur", "question": "Éduque ou montre seulement le produit ?", "note": 3, "obs": "Belles démonstrations, mais 8 vidéos sur 16 sans lien avec les produits."}, {"nom": "Appel à l'action", "question": "Dit quoi faire, achat simple, preuves", "note": 1, "obs": "Aucune vidéo ne dit comment commander. Aucun avis client montré."}, {"nom": "Engagement", "question": "Vues moyennes, réponses aux commentaires", "note": 2, "obs": "14 questions de prix sans réponse dans les commentaires."}], "chiffres": {"vues_moyennes": 600, "temps_moyen": 6, "duree_moyenne": 30, "video_entiere": 9, "messages_semaine": 3, "delai_reponse_h": 38}, "videos": [["V1", 420], ["V2", 780], ["V3", 350], ["V4", 610], ["V5", 1050], ["V6", 380], ["V7", 520], ["V8", 690]], "sources": [["Pour toi", 71], ["Profil", 12], ["Recherche", 9], ["Abonnés", 6], ["Autres", 2]], "entonnoir": [["Vues (8 vidéos)", 4800], ["Visites du profil", 240], ["Messages reçus", 12], ["Commandes", 4]], "client_mystere": {"envoye": "Vendredi 21 novembre, 20 h", "message": "Bonsoir, c'est combien la crème hydratante ? Vous livrez à Yopougon ?", "reponse": "Dimanche 23 novembre, 10 h : « Bonjour, c'est 8 000. »", "verdict": "38 heures d'attente, aucune question sur le besoin, aucune proposition de commande."}, "forces": ["Démonstrations claires : on voit bien la texture des produits", "Publication régulière depuis un mois", "Bonne lumière et son correct"], "blocages": [{"titre": "On ne sait pas comment commander", "impact": "Des clientes intéressées repartent sans écrire."}, {"titre": "Les 3 premières secondes ne retiennent pas", "impact": "Seulement 9 % des gens regardent la vidéo jusqu'au bout."}, {"titre": "Les messages attendent trop longtemps", "impact": "Une cliente qui attend 2 jours achète ailleurs."}], "priorites": [{"titre": "Bio et contact", "constat": "Bio sans produit ni contact.", "action": "Nouvelle bio en 3 lignes + lien WhatsApp + 3 vidéos épinglées.", "mesure": "Visites du profil, messages reçus", "echeance": "D'ici 2 jours", "impact": 5, "effort": 1, "lire": "Livre « Comment transformer TikTok en machine à cash » : la partie sur le profil"}, {"titre": "Réactivité", "constat": "38 h pour répondre au client mystère.", "action": "Répondre en moins de 2 h entre 9 h et 20 h, avec un message type.", "mesure": "Délai de réponse, commandes", "echeance": "Dès cette semaine", "impact": 5, "effort": 2, "lire": "Formation : le module sur la relation client et la conversion"}, {"titre": "Accroches et appels à l'action", "constat": "« Bonjour mes chéries » en ouverture, aucune consigne à la fin.", "action": "Ouvrir sur le problème de la cliente, finir par « Écris CRÈME en message ».", "mesure": "Temps moyen, vidéo entière, messages", "echeance": "Sur les 10 prochaines vidéos", "impact": 4, "effort": 3, "lire": "Livre « Comment transformer TikTok en machine à cash » : la partie sur les accroches"}], "exemples": {"bio_avant": "Dieu d'abord · Ma vie, mes passions · Bienvenue chez moi", "bio_apres": "Soins naturels pour peaux noires · Livraison Abidjan en 24 h · Commande sur WhatsApp ↓", "accroches": [["Bonjour mes chéries, aujourd'hui je vous présente ma crème.", "Ta peau tire après la douche ? Regarde ce qui change en 7 jours."], ["Coucou la famille, nouvel arrivage !", "3 savons qui partent en 2 jours chaque semaine. Voici pourquoi."], ["Alors aujourd'hui on va parler du karité.", "L'erreur que tout le monde fait avec le beurre de karité."]], "cta": "Écris CRÈME en message, je te réponds en moins de 2 heures.", "reponse_type": "Bonjour ! La crème hydratante est à 8 000 F. Pour quel type de peau ? Je te livre à Yopougon demain si tu commandes avant 18 h."}, "action_semaine": "Réécrire la bio avec un lien WhatsApp, puis répondre à toutes les questions de prix en attente dans les commentaires.", "sept_jours": ["Réécrire la bio et ajouter le lien WhatsApp", "Épingler 3 vidéos : produit phare, avis client, comment commander", "Répondre aux 14 questions de prix en attente", "Ajouter un texte d'accroche à l'écran sur chaque vidéo", "Finir chaque vidéo par un appel à l'action"], "plan_30": [["Semaine 1", "Profil", "Bio, contact, vidéos épinglées, message type"], ["Semaine 2", "Accroches", "Ouvrir sur le problème, texte à l'écran"], ["Semaine 3", "Preuves", "2 avis clients filmés, 1 vidéo coulisses"], ["Semaine 4", "Mesure", "Bilan des chiffres, audit de suivi"]], "suivi_date": "24 décembre 2026", "auditeur": {"nom": "Mohamed Nabi", "titre": "Superviseur de l'équipe interne de 1000 Vendeurs · Responsable du programme Royal Freelance", "tiktok": "@mohamednabiofficiel", "whatsapp": "+225 01 61 18 26 28", "wa_lien": "https://wa.me/2250161182628", "email": "equipe4com1000vendeurs@gmail.com", "mission": "Accompagner les jeunes débrouillards, les vendeurs sur TikTok et celles et ceux qui veulent entreprendre, pour qu'ils se forment et atteignent leurs résultats."}, "contenus": [{"titre": "Démonstration de la crème hydratante", "note": "Belle texture visible, mais l'accroche commence par « Bonjour mes chéries »."}, {"titre": "Vidéo danse sans lien avec les produits", "note": "Beaucoup de vues, aucune question sur les produits."}, {"titre": "Avant/après d'une cliente", "note": "Meilleure vidéo du mois : à refaire avec un appel à l'action."}], "type": "accompagnement", "date_iso": "2026-11-24", "suivi_iso": "2026-12-24", "img": {}}</script>
+
+<script>
+{
+const EMPTY=`<svg class="ill sm" viewBox="0 0 160 110" aria-hidden="true"><defs><linearGradient id="lg1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#25f4ee"/><stop offset="1" stop-color="#fe2c55"/></linearGradient></defs><circle cx="80" cy="56" r="44" fill="url(#lg1)" opacity=".15"/><g class="fl1"><rect x="50" y="24" width="60" height="66" rx="10" fill="var(--bg)" stroke="var(--line)" stroke-width="2"/><path d="M62 44l5 5 9-10M62 64l5 5 9-10" stroke="#22c55e" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="82" y="42" width="18" height="5" rx="2.5" fill="var(--line)"/><rect x="82" y="62" width="18" height="5" rx="2.5" fill="var(--line)"/></g></svg>`;
+const IC={arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>',home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v12h5v-6h4v6h5V9"/>',userPlus:'<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M19 8v6M16 11h6"/>',report:'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',chat:'<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/>',image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5a5 5 0 0 1 4.5 5"/>',send:'<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',trophy:'<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/>',sheet:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',ext:'<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',dl:'<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',plus:'<path d="M12 5v14M5 12h14"/>',check:'<path d="M20 6 9 17l-5-5"/>',refresh:'<path d="M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5"/>',funnel:'<path d="M3 4h18l-7 9v6l-4 2v-8z"/>',book:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',camera:'<path d="M3 8a2 2 0 0 1 2-2h2l2-3h6l2 3h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/>',zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',filePlus:'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/>',redo:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',wa:'<path d="M3 21l1.6-5A9 9 0 1 1 8 19.4z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 1c-1-.5-1.5-1-2-2l1-1-1-2z"/>',reply:'<path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',heart:'<path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-3 4.5 4.5 0 0 1 8 3c0 6-8 11-8 11z"/>',star:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',dot:'<circle cx="12" cy="12" r="4" fill="currentColor"/>'};
+const ic=(n,s=20)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]||""}</svg>`;
+document.querySelectorAll("[data-ic]").forEach(el=>el.insertAdjacentHTML("afterbegin",ic(el.dataset.ic,+el.dataset.s||20)));
+
+const SID="19eFcgWtNLSHGwH0h1MpPfJholX3KC1yi_BpeIDnk13Q";
+const SURL="https://docs.google.com/spreadsheets/d/"+SID+"/edit#gid=";
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $=id=>document.getElementById(id);
+const L={src:["Recherche TikTok","Commentaires","Lives","Abonnés de concurrents","Groupes WhatsApp/Facebook","Demande entrante","Recommandation","Autre"],canal:["","DM TikTok","Commentaire TikTok","WhatsApp","Appel","Facebook","Rencontre"],rep:["","Pas de réponse","Oui","Non","Plus tard"],statut:["Repéré","Qualifié","Contacté","Mini-audit envoyé","Audit complet vendu","Client accompagné","Pas intéressé","Sans réponse"]};
+const CRIT=[["Publie chaque semaine",2],["Vend quelque chose",2],["500 à 50 000 abonnés",1],["Problème visible",2],["Répond aux commentaires",1],["Ma niche ou ma zone",1],["Contactable",1]];
+const frDate=iso=>{if(!iso)return"";const[y,m,d]=iso.split("-");return`${d}/${m}/${y}`};
+const longDate=iso=>{if(!iso)return"";const d=new Date(iso+"T12:00:00");return d.toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})};
+const today=()=>new Date().toISOString().slice(0,10);
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+/* ---------- navigation ---------- */
+const views=["accueil","prospect","rapport","messages"];
+function route(){const h=location.hash.slice(1);const v=views.includes(h)?h:"accueil";for(const x of views)$("v-"+x).classList.toggle("on",x===v);for(const a of $("tabs").children)a.toggleAttribute("aria-current",a.getAttribute("href")==="#"+v),a.getAttribute("href")==="#"+v&&a.setAttribute("aria-current","page");if(v==="rapport")fit();window.scrollTo(0,0)}
+addEventListener("hashchange",route);
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}}),{threshold:.15});
+document.querySelectorAll(".reveal").forEach(el=>io.observe(el));
+
+/* ---------- accueil ---------- */
+$("openSheet").href=SURL+"0";
+$("links").innerHTML=[["0","Prospects","users"],["200","Audits","search"],["300","Tableau de bord","funnel"],["100","Mode d'emploi","book"]].map(([g,t,i])=>`<a href="${SURL+g}"><span class="lic">${ic(i,22)}</span><b>${t}</b>${ic("ext",16)}</a>`).join("");
+const KP=[["Repérés",0,"users"],["Contactés",2,"send"],["Mini-audits",4,"search"],["Audits vendus",5,"trophy"],["Chiffre d'affaires",-1,"cash"],["Relances",-2,"bell"]];
+let dash={fun:[],ca:0,rel:0};
+function count(el,to,suf=""){const t0=performance.now(),d=900;const step=t=>{const k=Math.min(1,(t-t0)/d);el.textContent=Math.round(to*(1-(1-k)**3)).toLocaleString("fr-FR")+suf;if(k<1)requestAnimationFrame(step)};matchMedia("(prefers-reduced-motion: reduce)").matches?el.textContent=to.toLocaleString("fr-FR")+suf:requestAnimationFrame(step)}
+function drawKpis(){$("kpis").innerHTML=KP.map((k,i)=>`<div class="kpi${k[1]===-2&&dash.rel>0?" hot":""}"><i>${ic(k[2],18)}</i><b id="k${i}">0</b><span>${k[0]}</span></div>`).join("");KP.forEach((k,i)=>{const v=k[1]===-1?dash.ca:k[1]===-2?dash.rel:(dash.fun[k[1]]?.[1]||0);count($("k"+i),v,k[1]===-1?" F":"")})}
+function drawFun(){const f=dash.fun;if(!f.length)return;const max=Math.max(1,f[0][1]);$("fun").innerHTML=f.map(([n,v])=>`<div class="r"><span>${esc(n)}</span><div class="t"><i data-w="${Math.max(2,v/max*100)}"></i></div><span class="n">${esc(v)}</span></div>`).join("");requestAnimationFrame(()=>document.querySelectorAll("#fun i").forEach(i=>i.style.width=i.dataset.w+"%"))}
+const num=v=>Number(String(v??"").replace(/[^\d,.-]/g,"").replace(",","."))||0;
+const parseFr=s=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s||"").trim());return m?new Date(+m[3],m[2]-1,+m[1]):null};
+drawKpis();
+(async()=>{const u=await claude.use("user");if((await u?.isOwner())??false)$("hello").textContent="Bonjour Mohamed";})();
+(async()=>{
+ const mcp=await claude.use("mcp");
+ if(!mcp){$("st").textContent="Espace verrouillé";$("stw").classList.add("off");$("rel").innerHTML='<li class="mut">Connecte Google Sheets pour voir tes relances.</li>';return}
+ const err=e=>{$("st").textContent="Impossible de lire le Google Sheet ("+(e?.error?.code||e?.code||"erreur")+"). Vérifie que Google Sheets est connecté.";};
+ mcp.watchTool("Google Sheets","get_values",{spreadsheetId:SID,range:"'Tableau de bord'!A4:B13"},ev=>{
+  if(ev.type==="error")return err(ev);if(ev.type!=="data")return;
+  const p=ev.result?.payload||{};const vals=p.values||p.content?.values||[];
+  dash.fun=vals.slice(0,7).filter(r=>r[0]).map(r=>[r[0],num(r[1])]);dash.ca=num(vals[9]?.[1]);
+  drawFun();drawKpis();
+  const at=ev.cache?.storedAt?new Date(ev.cache.storedAt):new Date();
+  $("st").textContent="En direct · "+at.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+ },{refetchInterval:120000});
+ mcp.watchTool("Google Sheets","get_values",{spreadsheetId:SID,range:"Prospects!A2:Z500"},ev=>{
+  if(ev.type==="error")return err(ev);if(ev.type!=="data")return;
+  const p=ev.result?.payload||{};const rows=p.values||p.content?.values||[];const now=new Date();
+  const due=rows.filter(r=>r[1]).map(r=>{const d1=parseFr(r[20]),d2=parseFr(r[21]);const d=d2&&d2<=now?["J+7",d2]:d1&&d1<=now?["J+3",d1]:null;return d&&!["Pas intéressé","Client accompagné","Audit complet vendu"].includes(r[22])?{c:r[1],k:d[0],d:d[1]}:null}).filter(Boolean);
+  dash.rel=due.length;drawKpis();drawPipe(rows);
+  $("rel").innerHTML=due.length?due.slice(0,8).map(x=>`<li><span class="who">${ic("bell",16)}${esc(x.c)}</span><span class="tag">${x.k} · ${x.d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span></li>`).join(""):`<li class="empty">${EMPTY}<span>Aucune relance en retard</span></li>`;
+ },{refetchInterval:120000});
+})();
+
+/* ---------- nouveau prospect ---------- */
+const opt=a=>a.map(x=>`<option>${esc(x)}</option>`).join("");
+$("p_src").innerHTML=opt(L.src);$("p_canal").innerHTML=opt(L.canal);$("p_rep").innerHTML=opt(L.rep);$("p_statut").innerHTML=opt(L.statut);
+$("crit").innerHTML=CRIT.map((c,i)=>`<label class="chip"><input type="checkbox" id="c${i}"><span>${ic("check",15)}${c[0]}<em>+${c[1]}</em></span></label>`).join("");
+function ring(){const s=CRIT.reduce((a,c,i)=>a+($("c"+i).checked?c[1]:0),0);const C=2*Math.PI*48,ok=s>=6,col=ok?"var(--pink)":s>=4?"var(--orange)":"rgba(142,142,147,.9)";
+ $("ring").innerHTML=`<circle cx="60" cy="60" r="48" fill="none" stroke="var(--fill)" stroke-width="13"/><circle cx="60" cy="60" r="48" fill="none" stroke="${col}" stroke-width="13" stroke-linecap="round" stroke-dasharray="${Math.max(.01,C*s/10)} ${C}" transform="rotate(-90 60 60)" style="transition:stroke-dasharray .5s,stroke .3s"/><text x="60" y="68" text-anchor="middle" font-size="34" font-weight="700" fill="currentColor">${s}</text><text x="60" y="88" text-anchor="middle" font-size="12" fill="var(--mut)">sur 10</text>`;
+ $("dec").textContent=ok?"À contacter":s>=4?"Presque":"À écarter";$("dec").style.color=ok?"var(--pink)":s>=4?"var(--orange)":"var(--mut)";
+ $("dech").textContent=ok?"Envoie ton premier message aujourd'hui.":s>=4?`Encore ${6-s} point${6-s>1?"s":""} pour le contacter.`:"Coche ce que tu vois sur le profil.";
+ $("zm").style.left=(s*10)+"%";
+ $("det").innerHTML=CRIT.map((c,i)=>{const on=$("c"+i).checked;return`<div class="dr${on?" on":""}"><span class="dn">${c[0]}</span><span class="dt"><i style="width:${on?c[1]*50:0}%"></i></span><b>${on?"+"+c[1]:"0"}</b></div>`}).join("");
+ return s}
+const PCOL=["#8e8e93","#007aff","#5856d6","#ff9500","#34c759","#30b0c7","#ff3b30","#c7c7cc"];
+function drawPipe(rows){
+ if(!rows){$("pipe").innerHTML=`<div class="pempty">${EMPTY}<span>Connecte Google Sheets pour voir ton pipeline.</span></div>`;$("rec").innerHTML='<li class="mut">Aucun prospect à afficher.</li>';return}
+ rows=rows.filter(r=>r[1]);const n=rows.length,now=new Date(),wk=rows.filter(r=>{const d=parseFr(r[0]);return d&&now-d<7*864e5}).length;
+ const cnt=L.statut.map(st=>rows.filter(r=>(r[22]||"Repéré")===st).length);const hot=rows.filter(r=>num(r[15])>=6).length;
+ const R=42,C=2*Math.PI*R;let off=0;const seg=cnt.map((v,i)=>{if(!v)return"";const l=v/Math.max(1,n)*C;const el=`<circle cx="60" cy="60" r="${R}" fill="none" stroke="${PCOL[i]}" stroke-width="16" stroke-dasharray="${l} ${C-l}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`;off+=l;return el}).join("");
+ $("pipe").innerHTML=`<div class="pst"><div><b>${n}</b><span>Prospects</span></div><div><b>${wk}</b><span>Cette semaine</span></div><div><b>${n?Math.round(hot/n*100):0}%</b><span>Score ≥ 6</span></div></div>
+ <div class="pdn"><svg viewBox="0 0 120 120" class="donut"><circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--fill)" stroke-width="16"/>${seg}<text x="60" y="66" text-anchor="middle" font-size="22" font-weight="700" fill="currentColor">${n}</text></svg>
+ <ul class="leg2">${L.statut.map((st,i)=>cnt[i]?`<li><i style="background:${PCOL[i]}"></i><span>${esc(st)}</span><b>${cnt[i]}</b></li>`:"").join("")||'<li class="mut">Aucun statut</li>'}</ul></div>`;
+ const last=rows.slice(-4).reverse();
+ $("rec").innerHTML=last.length?last.map(r=>{const sc=num(r[15]);return`<li><span class="who"><span class="avt">${esc(String(r[1]).replace("@","").slice(0,1).toUpperCase())}</span><span><b>${esc(r[1])}</b><small>${esc(r[3]||"—")} · ${esc(r[22]||"Repéré")}</small></span></span><span class="pill${sc>=6?" hot":""}">${sc}/10</span></li>`}).join(""):'<li class="mut">Aucun prospect pour l\'instant.</li>'}
+$("crit").addEventListener("change",ring);ring();drawPipe(null);
+$("pf").addEventListener("submit",async ev=>{ev.preventDefault();const m=$("pmsg");const compte=$("p_compte").value.trim();if(!compte){m.textContent="Indique le compte TikTok.";return}
+ const mcp=await claude.use("mcp");if(!mcp){m.textContent="Déverrouille l'espace avec ton code pour écrire dans le Sheet.";return}
+ const row=[frDate(today()),compte,$("p_lien").value.trim(),$("p_niche").value.trim(),$("p_ville").value.trim(),$("p_ab").value?Number($("p_ab").value):"",$("p_src").value,$("p_sig").value.trim(),...CRIT.map((c,i)=>$("c"+i).checked),null,null,frDate($("p_dc").value),$("p_canal").value,$("p_rep").value,null,null,$("p_statut").value,"",$("p_na").value.trim(),frDate($("p_nd").value),"",$("p_notes").value.trim()];
+ m.textContent="Envoi…";
+ try{await mcp.callTool("Google Sheets","append_values",{spreadsheetId:SID,range:"Prospects!A1:AB1",values:[row]});m.textContent="Ajouté : "+compte+" est dans l'onglet Prospects.";$("pf").reset();ring()}
+ catch(e){m.textContent="L'ajout a échoué ("+(e?.code||e?.message||"erreur")+"). Rien n'a été écrit, réessaie."}});
+
+/* ---------- rapport ---------- */
+const EXS={prospection:JSON.parse($("exP").textContent),accompagnement:JSON.parse($("exA").textContent)};
+const clone=o=>JSON.parse(JSON.stringify(o));
+let D=store.get("ra-draft2")||clone(EXS.prospection);
+const fillMissing=(d,ex)=>{for(const[k,v]of Object.entries(ex))if(d[k]===undefined)d[k]=clone(v);return d};
+fillMissing(D,EXS[D.type||"prospection"]);
+const get=(o,p)=>p.split(".").reduce((a,k)=>a?.[k],o);
+const set=(o,p,v)=>{const ks=p.split(".");let a=o;ks.slice(0,-1).forEach(k=>{if(a[k]===undefined)a[k]={};a=a[k]});a[ks.at(-1)]=v};
+const save=()=>{try{localStorage.setItem("ra-draft2",JSON.stringify(D))}catch(e){$("upmsg").textContent="Brouillon trop lourd pour être gardé sur cet appareil : télécharge le PDF avant de fermer."}};
+const F=(k,l,t="text",x="")=>`<div class="f"><label for="f_${k}">${l}</label>${t==="area"?`<textarea id="f_${k}" data-k="${k}"></textarea>`:t==="note"?`<select id="f_${k}" data-k="${k}" data-n="1">${[0,1,2,3,4,5].map(n=>`<option>${n}</option>`).join("")}</select>`:`<input id="f_${k}" data-k="${k}" type="${t}" ${t==="number"?'inputmode="decimal" data-n="1"':""} ${x}>`}</div>`;
+const SI={"Le client":"users","Notes par critère (sur 5)":"star","Contenus analysés":"image","Diagnostic":"search","Action gratuite et bio":"zap","Le pack":"book","Chiffres clés":"funnel","Client mystère":"chat","Les 3 priorités":"trophy","Exemples réécrits":"reply","Plan d'action":"check"};
+const sec=(t,h,o,only)=>`<details${o?" open":""}${only?` data-only="${only}"`:""}><summary>${ic(SI[t]||"dot",18)}<span>${t.replace(" (sur 5)","")}</span></summary>${h}</details>`;
+function buildForm(){const C=D.criteres;
+ $("rf").innerHTML=
+ sec("Le client",`<div class="two">${F("compte","Compte TikTok")}${F("nom","Nom à saluer")}</div><div class="two">${F("niche","Niche")}${F("ville","Ville")}</div><div class="two">${F("date_iso","Date du rapport","date")}${F("nb_videos","Vidéos regardées","number")}</div><div data-only="accompagnement">${F("abonnes","Abonnés","number")}${F("periode","Période analysée")}${F("objectif","Objectif du client")}</div>`,1)+
+ sec("Notes par critère (sur 5)",C.map((c,i)=>`<div class="two">${F(`criteres.${i}.note`,`${i+1}. ${esc(c.nom)}`,"note")}<div></div></div>${F(`criteres.${i}.obs`,"Observation","area")}`).join(""))+
+ sec("Contenus analysés",[0,1,2].map(i=>`<div class="two">${F(`contenus.${i}.titre`,`Contenu ${i+1} : titre`)}${F(`contenus.${i}.note`,"Ce qu'on en retient")}</div>`).join(""))+
+ sec("Diagnostic",`${F("forces_txt","Ce qui fonctionne (une force par ligne)","area")}${[0,1,2].map(i=>`<h3 style="margin-top:8px">Frein ${i+1}</h3><div class="two">${F(`blocages.${i}.titre`,"Frein")}${F(`blocages.${i}.impact`,"Conséquence")}</div><div data-only="prospection">${F(`blocages.${i}.solution`,"Ce qui le règle (livre ou module)")}</div>`).join("")}`)+
+ sec("Action gratuite et bio",`${F("action_semaine","Action de la semaine","area")}<div class="two">${F("exemples.bio_avant","Bio aujourd'hui","area")}${F("exemples.bio_apres","Bio proposée","area")}</div><div data-only="prospection">${F("sept_txt","Vérifications rapides (une par ligne)","area")}</div>`)+
+ sec("Le pack",`${F("pack.titre","Nom du pack")}${F("pack_txt","Ce que contient le pack (une ligne par élément)","area")}${F("pack.prix","Prix (laisse vide pour « écrivez-moi »)")}`,0,"prospection")+
+ sec("Chiffres clés",`<div class="three">${F("chiffres.vues_moyennes","Vues moyennes","number")}${F("chiffres.temps_moyen","Temps moyen (s)","number")}${F("chiffres.duree_moyenne","Durée des vidéos (s)","number")}</div><div class="three">${F("chiffres.video_entiere","Vidéo vue en entier (%)","number")}${F("chiffres.messages_semaine","Messages / semaine","number")}${F("chiffres.delai_reponse_h","Délai de réponse (h)","number")}</div>${F("videos_txt","Vues des dernières vidéos (une par ligne : V1 420)","area")}<label>Sources de trafic (%)</label><div class="three">${(D.sources||EXS.accompagnement.sources).map((s,i)=>F(`sources.${i}.1`,esc(s[0]),"number")).join("")}</div><label>Entonnoir</label><div class="two">${(D.entonnoir||EXS.accompagnement.entonnoir).map((s,i)=>F(`entonnoir.${i}.1`,esc(s[0]),"number")).join("")}</div>`,0,"accompagnement")+
+ sec("Client mystère",`${F("client_mystere.message","Message envoyé")}${F("client_mystere.envoye","Envoyé le")}${F("client_mystere.reponse","Réponse reçue")}${F("client_mystere.verdict","Verdict","area")}`,0,"accompagnement")+
+ sec("Les 3 priorités",[0,1,2].map(i=>`<h3 style="margin-top:8px">Priorité ${i+1}</h3>${F(`priorites.${i}.titre`,"Titre")}${F(`priorites.${i}.constat`,"Constat")}${F(`priorites.${i}.action`,"Action","area")}<div class="two">${F(`priorites.${i}.mesure`,"Mesure")}${F(`priorites.${i}.echeance`,"Quand")}</div><div class="two">${F(`priorites.${i}.impact`,"Impact (1 à 5)","number",'min="1" max="5"')}${F(`priorites.${i}.effort`,"Effort (1 à 5)","number",'min="1" max="5"')}</div>${F(`priorites.${i}.lire`,"À relire dans le pack")}`).join(""),0,"accompagnement")+
+ sec("Exemples réécrits",`${[0,1,2].map(i=>`<div class="two">${F(`exemples.accroches.${i}.0`,`Accroche ${i+1} avant`)}${F(`exemples.accroches.${i}.1`,"Après")}</div>`).join("")}${F("exemples.cta","Appel à l'action","area")}${F("exemples.reponse_type","Réponse type aux messages","area")}`,0,"accompagnement")+
+ sec("Plan d'action",`${F("sept_txt2","Les 7 prochains jours (une tâche par ligne)","area")}${[0,1,2,3].map(i=>`<div class="two">${F(`plan_30.${i}.1`,`Semaine ${i+1} : thème`)}${F(`plan_30.${i}.2`,"Contenu")}</div>`).join("")}${F("suivi_iso","Date du point de suivi","date")}`,0,"accompagnement");
+ syncIn();showType()}
+function syncIn(){D.videos_txt=(D.videos||[]).map(v=>v.join(" ")).join("\n");D.forces_txt=(D.forces||[]).join("\n");D.sept_txt=D.sept_txt2=(D.sept_jours||[]).join("\n");D.pack_txt=(D.pack?.contenu||[]).join("\n");
+ document.querySelectorAll("#rf [data-k]").forEach(el=>{const v=get(D,el.dataset.k);el.value=v??""})}
+function showType(){const t=D.type;drawImgs();document.querySelectorAll("#rf [data-only]").forEach(el=>el.hidden=el.dataset.only!==t);
+ for(const b of $("seg").children)b.setAttribute("aria-selected",b.dataset.t===t)}
+const lines=v=>v.split("\n").map(s=>s.trim()).filter(Boolean);
+function readOut(el){const k=el.dataset.k;let v=el.value;if(el.dataset.n)v=v===""?0:Number(v);set(D,k,v);
+ if(k==="videos_txt")D.videos=v.split("\n").map(l=>l.trim().split(/\s+/)).filter(a=>a.length>1&&!isNaN(+a[1])).map(a=>[a[0],+a[1]]);
+ if(k==="forces_txt")D.forces=lines(v);if(k==="sept_txt"||k==="sept_txt2")D.sept_jours=lines(v);if(k==="pack_txt")D.pack.contenu=lines(v);
+ if(k==="date_iso")D.date=longDate(v);if(k==="suivi_iso")D.suivi_date=longDate(v)}
+let tm;$("rf").addEventListener("input",e=>{if(!e.target.dataset.k)return;readOut(e.target);clearTimeout(tm);tm=setTimeout(()=>{render();save()},150)});
+$("seg").addEventListener("click",e=>{const b=e.target.closest("[data-t]");if(!b||b.dataset.t===D.type)return;D.type=b.dataset.t;fillMissing(D,EXS[D.type]);buildForm();render();save()});
+$("reset").onclick=()=>{const t=D.type;D=clone(EXS[t]);buildForm();drawImgs();render();go(1);save();$("rmsg").textContent="Exemple rechargé."};
+$("newc").onclick=()=>{const t=D.type;D=clone(EXS[t]);Object.assign(D,{compte:"@",nom:"",niche:"",img:{},date_iso:today(),date:longDate(today())});D.criteres.forEach(c=>{c.note=0;c.obs=""});D.contenus.forEach(c=>{c.titre="";c.note=""});D.forces=[];D.blocages.forEach(b=>{b.titre="";b.impact=""});D.action_semaine="";D.exemples.bio_avant="";D.exemples.bio_apres="";buildForm();drawImgs();render();save();$("rmsg").textContent="Nouveau rapport vierge. Les textes du pack sont gardés."};
+/* captures */
+let PH={};
+const srcOf=v=>{v=String(v||"");return v.startsWith("data:image/")?v:/^[\w-]+$/.test(v)?"/_blob/"+v:""};
+const imgId=k=>(D.img&&D.img[k])||PH[k];
+const img=(k,label,h,mode)=>{const s=srcOf(imgId(k));const st=`height:${h}px;${mode==="phone"?"border:5px solid #161823;border-radius:26px;background:#fff;":""}`;return s?`<div class="ph" style="${st}${mode==="fit"?"background:#f4f4f6;border-style:solid;border-color:#e4e4e8;":""}"><img src="${esc(s)}" alt="" style="${mode==="fit"?"object-fit:contain":""}"></div>`:`<div class="ph" style="${st}">${label}</div>`};
+const GROUPS=[
+ {t:"Couverture",pg:{prospection:"Page de garde",accompagnement:"Page de garde"},who:1,ic:"report",items:[["bio","Bio du profil","16/7"]]},
+ {t:"Contenus analysés",pg:{prospection:"Page 03 · Diagnostic",accompagnement:"Page 05 · Diagnostic"},who:1,ic:"search",items:[["contenu1","Contenu 1","9/16"],["contenu2","Contenu 2","9/16"],["contenu3","Contenu 3","9/16"]]},
+ {t:"Les livres",pg:{prospection:"Page 06 · Les livres"},who:0,ic:"book",items:[["livre1","Machine à cash","3/4"],["livre2","Live et Vends","3/4"],["livre3","Sans se faire bannir","3/4"],["loukou","Loukou Koffi","4/5"],["partenaires","Lecteurs et partenaires","4/1"]]},
+ {t:"Ton profil",pg:{prospection:"Page 07 · Votre accompagnateur"},who:0,ic:"users",items:[["mohamed","Ta photo","4/5"]]}];
+const FIXED=new Set(GROUPS.filter(g=>!g.who).flatMap(g=>g.items.map(i=>i[0])));
+function drawImgs(){const t=D.type||"prospection";$("imgs").innerHTML=GROUPS.filter(g=>g.pg[t]).map(g=>`<div class="ig"><div class="igh"><span class="lic">${ic(g.ic,18)}</span><span class="igt"><b>${g.t}</b><span class="pgc">${g.pg[t]}</span></span><span class="who ${g.who?"b1":"b2"}"></span></div><div class="igr">${g.items.map(([k,l,r])=>{const sv=srcOf(g.who?D.img?.[k]:PH[k]);return`<label class="drop" data-k="${k}" style="--r:${r};${r==="4/1"?"grid-column:1/-1;":""}${r==="16/7"?"grid-column:1/-1;":""}"><input type="file" accept="image/*" hidden><span class="dz">${sv?`<img src="${esc(sv)}" alt=""${r==="16/7"||r==="4/1"?' style="object-fit:contain"':""}><button type="button" class="x" aria-label="Retirer">${ic("plus",16)}</button>`:ic("camera",26)}</span><b>${l}</b></label>`}).join("")}</div></div>`).join("")}
+const shrink=f=>new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1400/Math.max(im.width,im.height));const c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);ok(c)};im.onerror=ko;im.src=r.result};r.onerror=ko;r.readAsDataURL(f)});
+async function savePH(){const db=await claude.use("db");const ids=Object.fromEntries(Object.entries(PH).filter(([k,v])=>/^[\w-]+$/.test(v)));if(db){try{await db.doc("config/photos").set(ids)}catch(e){}}try{localStorage.setItem("ra-ph",JSON.stringify(PH))}catch(e){}}
+async function addImg(k,file){if(!file||!file.type.startsWith("image/"))return;const m=$("upmsg");m.textContent="Préparation de l'image…";
+ try{const c=await shrink(file);const assets=await claude.use("assets");let v;
+  if(assets){const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",.85));v=(await assets.upload(blob)).id}else v=c.toDataURL("image/jpeg",.8);
+  if(FIXED.has(k)){PH[k]=v;await savePH()}else{D.img={...(D.img||{}),[k]:v};save()}
+  drawImgs();render();m.textContent=""}
+ catch(e){m.textContent="L'image n'a pas pu être ajoutée ("+(e?.code||e?.message||"erreur")+")."}}
+$("imgs").addEventListener("change",e=>{const d=e.target.closest(".drop");if(d&&e.target.files[0])addImg(d.dataset.k,e.target.files[0]);e.target.value=""});
+$("imgs").addEventListener("click",async e=>{if(!e.target.closest(".x"))return;e.preventDefault();const k=e.target.closest(".drop").dataset.k;if(FIXED.has(k)){delete PH[k];await savePH()}else{delete D.img[k];save()}drawImgs();render()});
+$("imgs").addEventListener("dragover",e=>{const d=e.target.closest(".drop");if(d){e.preventDefault();d.classList.add("over")}});
+$("imgs").addEventListener("dragleave",e=>{e.target.closest(".drop")?.classList.remove("over")});
+$("imgs").addEventListener("drop",e=>{const d=e.target.closest(".drop");if(!d)return;e.preventDefault();d.classList.remove("over");addImg(d.dataset.k,e.dataTransfer.files[0])});
+try{const l=JSON.parse(localStorage.getItem("ra-ph")||"{}");if(l&&typeof l==="object")for(const[k,v]of Object.entries(l))if(FIXED.has(k))PH[k]=String(v)}catch(e){}
+(async()=>{const db=await claude.use("db");if(!db)return;try{const r=await db.doc("config/photos").get();const d=r&&typeof r.data==="function"?r.data():(r?.data??r);if(d&&typeof d==="object")for(const[k,v]of Object.entries(d))if(FIXED.has(k)&&/^[\w-]+$/.test(String(v)))PH[k]=String(v);drawImgs();render()}catch(e){}})();
+function svgGauge(s){const C=2*Math.PI*70;return`<svg viewBox="0 0 180 180" width="190"><defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="#25f4ee"/><stop offset="1" stop-color="#fe2c55"/></linearGradient></defs><circle cx="90" cy="90" r="70" fill="none" stroke="#e4e4e8" stroke-width="16"/><circle cx="90" cy="90" r="70" fill="none" stroke="url(#gg)" stroke-width="16" stroke-linecap="round" stroke-dasharray="${C*s/30} ${C}" transform="rotate(-90 90 90)"/><text x="90" y="100" text-anchor="middle" font-size="44" font-weight="800" fill="#161823">${s}</text><text x="90" y="124" text-anchor="middle" font-size="13" font-weight="700" fill="#fe2c55">/ 30</text></svg>`}
+function svgScale(s){const W=640;const seg=[[0,12,"#FFE4E8","Page à relancer"],[13,21,"#FFEDD5","Bonne base"],[22,30,"#DCFCE7","Prête à vendre"]];return`<svg viewBox="0 0 ${W} 64" width="100%">${seg.map(([a,z,c,n])=>{const x0=a/30*W,x1=z>=30?W:(z+1)/30*W;return`<rect x="${x0+1}" y="20" width="${x1-x0-2}" height="18" rx="4" fill="${c}"/><text x="${(x0+x1)/2}" y="56" font-size="11" font-weight="600" text-anchor="middle" fill="#161823">${a}-${z} · ${n}</text>`}).join("")}<path d="M${s/30*W-7} 6 L${s/30*W+7} 6 L${s/30*W} 17Z" fill="#fe2c55"/></svg>`}
+function svgRadar(C){const n=C.length,cx=160,cy=150,R=105;const P=(i,r)=>[cx+r*Math.sin(2*Math.PI*i/n),cy-r*Math.cos(2*Math.PI*i/n)];let b="";for(let k=1;k<=5;k++)b+=`<polygon points="${C.map((_,i)=>P(i,R*k/5).join(",")).join(" ")}" fill="none" stroke="#e4e4e8"/>`;
+ C.forEach((c,i)=>{const[x,y]=P(i,R),[lx,ly]=P(i,R+22);b+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#e4e4e8"/><circle cx="${lx}" cy="${ly}" r="13" fill="#161823"/><text x="${lx}" y="${ly+5}" font-size="14" font-weight="800" fill="#fff" text-anchor="middle">${i+1}</text>`});
+ b+=`<polygon points="${C.map((c,i)=>P(i,R*(+c.note||0)/5).join(",")).join(" ")}" fill="#fe2c55" fill-opacity=".18" stroke="#fe2c55" stroke-width="2.2"/>`;return`<svg viewBox="0 0 320 300" width="100%">${b}</svg>`}
+function svgBars(v){if(!v.length)return"";const mx=Math.max(...v.map(x=>x[1]))*1.15||1,avg=v.reduce((a,x)=>a+x[1],0)/v.length,W=600,x0=20,y0=180,bw=(W-x0)/v.length;let b=`<line x1="${x0}" y1="${y0}" x2="${W}" y2="${y0}" stroke="#161823"/>`;
+ v.forEach(([n,val],i)=>{const h=val/mx*160,x=x0+i*bw+bw*.2;b+=`<rect x="${x}" y="${y0-h}" width="${bw*.6}" height="${h}" rx="4" fill="${val>=avg?"#fe2c55":"#fbc8d2"}"/><text x="${x+bw*.3}" y="${y0-h-6}" font-size="11" font-weight="700" text-anchor="middle" fill="#161823">${val.toLocaleString("fr-FR")}</text><text x="${x+bw*.3}" y="${y0+16}" font-size="11" text-anchor="middle" fill="#6b6f7b">${esc(n)}</text>`});
+ const ya=y0-avg/mx*160;return`<svg viewBox="0 0 ${W} 200" width="100%">${b}<line x1="${x0}" y1="${ya}" x2="${W}" y2="${ya}" stroke="#161823" stroke-dasharray="5 4"/></svg>`}
+function svgSources(src){const cols=["#fe2c55","#ff8fa3","#14a8a4","#9be7e4","#c9c9d1"],W=600,tot=src.reduce((a,s)=>a+(+s[1]||0),0)||1;let x=0,b="";src.forEach((s,i)=>{const w=W*(+s[1]||0)/tot;b+=`<rect x="${x}" y="4" width="${Math.max(0,w-2)}" height="34" rx="4" fill="${cols[i]}"/>`+(s[1]>=6?`<text x="${x+8}" y="26" font-size="12" font-weight="800" fill="#fff">${esc(s[1])} %</text>`:"");x+=w});
+ b+=src.map((s,i)=>`<rect x="${i*120}" y="52" width="11" height="11" rx="2" fill="${cols[i]}"/><text x="${i*120+16}" y="62" font-size="11" font-weight="600" fill="#161823">${esc(s[0])} (${esc(s[1])} %)</text>`).join("");return`<svg viewBox="0 0 ${W} 70" width="100%">${b}</svg>`}
+function svgMatrix(P){let b=`<rect x="40" y="10" width="125" height="95" rx="8" fill="#fe2c55" fill-opacity=".14"/><rect x="170" y="10" width="125" height="95" rx="8" fill="#f4f4f6"/><rect x="40" y="110" width="125" height="95" rx="8" fill="#f4f4f6"/><rect x="170" y="110" width="125" height="95" rx="8" fill="#f4f4f6"/><text x="46" y="99" font-size="9" font-weight="700" fill="#fe2c55">À faire tout de suite</text><text x="176" y="99" font-size="9" font-weight="700" fill="#161823">À planifier</text><text x="46" y="199" font-size="9" font-weight="700" fill="#6b6f7b">Si on a le temps</text><text x="176" y="199" font-size="9" font-weight="700" fill="#6b6f7b">À éviter</text><text x="167" y="225" font-size="9.5" font-weight="700" text-anchor="middle" fill="#161823">Effort →</text><text x="16" y="108" font-size="9.5" font-weight="700" fill="#161823" text-anchor="middle" transform="rotate(-90 16 108)">Impact →</text>`;
+ P.forEach((p,i)=>{const x=40+((+p.effort||1)-.5)/5*255,y=200-((+p.impact||1)-.5)/5*190;b+=`<circle cx="${x}" cy="${y}" r="13" fill="#fe2c55"/><text x="${x}" y="${y+4.5}" font-size="12" font-weight="800" text-anchor="middle" fill="#fff">${i+1}</text>`});return`<svg viewBox="0 0 300 230" width="100%">${b}</svg>`}
+function pages(){const T=D.type||"prospection",C=D.criteres,E=esc,score=C.reduce((a,c)=>a+(+c.note||0),0),niv=score<=12?"Page à relancer":score<=21?"Bonne base":"Prête à vendre";
+ const KIND=T==="prospection"?"Audit TikTok express":"Audit d'accompagnement TikTok";
+ const pg=(n,t,b)=>`<div class="rp"><div class="num">${String(n).padStart(2,"0")}</div><h2>${t}</h2><div class="bar"></div>${b}<div class="foot"><span>${KIND} · ${E(D.compte)}</span><span>${E(D.date)}</span></div></div>`;
+ const tiles=(a)=>`<div class="tiles">${a.map(([v,l,h])=>`<div class="tile${h?" h":""}" style="${h===2?"background:#fff":""}"><div class="tv">${E(v)}</div><div class="tl">${l}</div></div>`).join("")}</div>`;
+ const P={};
+ P.detail=["Détail par critère",`<div class="row"><div style="flex:1.45">${C.map((c,i)=>`<div class="crit"><div class="ch"><b>${i+1}. ${E(c.nom)}</b><span class="sc">${E(c.note)}<small style="font-size:12px">/5</small></span></div><div class="m">${E(c.question)}</div><div class="tr"><i style="width:${(+c.note||0)*20}%"></i></div><div style="font-size:12.5px"><b>Observation :</b> ${E(c.obs)}</div></div>`).join("")}</div><div><div class="c g">${svgRadar(C)}<p class="m" style="text-align:center">Les numéros renvoient aux critères.</p></div><div class="c"><div class="lab">Total</div><p class="big">${score} / 30 · ${niv}</p></div></div></div>`];
+ P.diag=["Diagnostic",`<div class="c"><div class="lab ok">Ce qui fonctionne</div><ul style="margin:0;padding-left:20px">${(D.forces||[]).map(f=>`<li>${E(f)}</li>`).join("")}</ul></div><div class="c"><div class="lab ko">Ce qui freine votre page</div>${D.blocages.map((b,i)=>`<div style="display:flex;gap:12px;margin-bottom:10px"><div class="pn">${i+1}</div><div><b>${E(b.titre)}</b><p class="m" style="font-size:13px">${E(b.impact)}</p></div></div>`).join("")}</div><div class="lab">Vos contenus analysés</div><div class="row">${(D.contenus||[]).slice(0,3).map((c,i)=>`<div><div style="width:76%;margin:0 auto 8px">${img("contenu"+(i+1),"Capture du contenu "+(i+1),270,"phone")}</div><b style="font-size:12.5px">${E(c.titre)}</b><p class="m">${E(c.note)}</p></div>`).join("")}</div>`];
+ const synthTop=`<div class="row"><div class="c g" style="flex:.8;text-align:center"><div class="lab">Note globale</div>${svgGauge(score)}<div style="font-weight:800;color:#fe2c55;font-size:18px">${niv}</div></div><div>`;
+ let order,toc,title,sub,chip,fin;
+ if(T==="prospection"){
+  P.synth=["Synthèse",`<p class="lead">Bonjour ${E(D.nom)}, j'ai regardé votre page TikTok comme le ferait un client : votre profil et vos dernières vidéos publiques. Voici ce que j'ai vu.</p>${synthTop}<div class="c"><div class="lab">Ce que j'ai analysé</div><p>Votre profil, votre bio et vos ${E(D.nb_videos)} dernières vidéos publiques.</p><p class="m">Sans accès à vos statistiques privées : ce rapport s'appuie sur ce que tout visiteur peut voir.</p></div><div class="c"><div class="lab">Votre compte</div><p>${E(D.compte)} · ${E(D.niche)} · ${E(D.ville)}</p></div></div></div><div class="c">${svgScale(score)}</div><div class="row"><div class="c"><div class="lab ok">Point fort</div><p>${E(D.forces?.[0])}</p></div><div class="c"><div class="lab ko">Frein principal</div><p>${E(D.blocages[0].titre)}</p></div></div>`];
+  P.action=["Votre action gratuite",`<p class="lead">Un conseil à appliquer dès cette semaine, sans rien acheter. S'il vous aide, vous saurez que le reste de la méthode peut vous aider aussi.</p><div class="c d"><div class="lab">Votre action cette semaine</div><p class="big">${E(D.action_semaine)}</p></div><div class="c"><div class="lab">Avant / après : votre bio</div><table><tr><th>Aujourd'hui</th><th>Proposition</th></tr><tr><td class="av">${E(D.exemples.bio_avant)}</td><td class="ap">${E(D.exemples.bio_apres)}</td></tr></table></div><div class="c"><div class="lab">Vérifications rapides</div>${(D.sept_jours||[]).slice(0,4).map(s=>`<div style="display:flex;gap:10px;margin-bottom:6px"><span style="width:14px;height:14px;border:2px solid #6b6f7b;border-radius:50%;flex:none;margin-top:3px"></span>${E(s)}</div>`).join("")}</div><p class="m">Ce rapport est un audit express. L'analyse complète de vos statistiques, de vos ventes et de vos messages fait partie de l'audit d'accompagnement, offert avec le pack.</p>`];
+  const pk=D.pack||{};
+  P.pack=["Aller plus loin",`<p class="lead">Chaque frein repéré a une réponse dans la méthode de 1000 Vendeurs.</p><div class="c"><div class="lab">Vos freins et ce qui les règle</div><table>${D.blocages.map(b=>`<tr><td style="color:#fe2c55;font-weight:700;width:44%">${E(b.titre)}</td><td>${E(b.solution)}</td></tr>`).join("")}</table></div><div class="c d" style="padding:24px"><div class="lab">${E(pk.titre)}</div><ul style="margin:6px 0 0;padding-left:20px">${(pk.contenu||[]).map(x=>`<li style="margin-bottom:5px">${E(x)}</li>`).join("")}</ul><p class="big" style="margin-top:12px">${pk.prix?E(pk.prix):'<span style="font-weight:500;font-size:14px;color:#c9ccd6">Prix et modalités : écrivez-moi sur WhatsApp.</span>'}</p></div><div class="c dash"><span style="display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:3px 10px;border-radius:10px;background:#ffe9ee;color:#fe2c55;margin-bottom:8px">Offert avec le pack</span><p class="big">Un audit d'accompagnement de votre page</p><p>Après votre achat, j'analyse votre compte en profondeur : vos statistiques, le chemin de vos clients jusqu'à la commande, vos 3 priorités, des exemples réécrits et un plan de 30 jours. Puis un point de suivi après 30 jours.</p></div>`];
+  P.livres=["Les livres",`<div class="row" style="margin-bottom:14px">${[["livre1","Comment transformer TikTok en machine à cash"],["livre2","Live et Vends"],["livre3","Vendre sur TikTok sans se faire bannir"]].map(([k,t])=>`<div>${img(k,"Couverture",230)}<b style="display:block;margin-top:8px;font-size:13px">${t}</b></div>`).join("")}</div><div class="c"><div class="row"><div style="flex:.45">${img("loukou","Photo de l'auteur",170)}</div><div><div class="lab">L'auteur</div><p class="big">Loukou Koffi</p><p style="font-size:13px">Fondateur de 1000 Vendeurs SARL · auteur, conférencier, consultant. Il aide les entrepreneurs et les entreprises en difficulté de vente à vendre plus et plus vite grâce à des formations et des livres stratégiques.</p></div></div>${tiles([["20+","livres publiés",2],["1 000+","lecteurs et personnes formées",2],["100 000+","abonnés sur TikTok",2]])}<p style="font-size:12.5px">2024 : Meilleur Jeune Entrepreneur Beauté &amp; Soins, Wecanda Awards · 2024 : Meilleur Entrepreneur Masculin, Africa StartUp TV</p></div>${img("partenaires","Photos des lecteurs et logos des partenaires",150)}`];
+  P.moi=["Votre accompagnateur",`<div class="c g"><div class="row"><div style="flex:.45">${img("mohamed","Photo",170)}</div><div><div class="lab">Votre accompagnateur</div><p class="big">Mohamed Nabi</p><p style="font-size:13px">Superviseur de l'équipe interne de 1000 Vendeurs · Responsable du programme Royal Freelance</p><p class="m">Accompagner les jeunes débrouillards, les vendeurs sur TikTok et celles et ceux qui veulent entreprendre, pour qu'ils se forment et atteignent leurs résultats.</p></div></div>${tiles([["+20","audits TikTok réalisés",2],["+5","clients satisfaits",2],["@mohamednabiofficiel","sur TikTok",2]]).replace('<div class="tv">@mohamednabiofficiel','<div class="tv" style="font-size:15px;padding-top:8px">@mohamednabiofficiel')}</div><div class="lab" style="margin-top:14px">Comment ça se passe</div><div class="row">${[["Aujourd'hui","Audit express","Ce rapport, offert",1],["Étape 1","Le pack","Livres et formation"],["Étape 2","Audit d'accompagnement","Offert : statistiques, priorités, plan de 30 jours"],["Étape 3","Suivi à 30 jours","On mesure vos progrès ensemble"]].map(([a,b,c,d])=>`<div class="c" style="margin:0;${d?"background:#161823;color:#fff":""}"><div class="lab" style="${d?"color:#25f4ee":""}">${a}</div><b>${b}</b><p style="font-size:12px">${c}</p></div>`).join("")}</div><p class="m" style="margin-top:14px">Ce rapport s'appuie uniquement sur des informations publiques de votre page. Il reste entre vous et moi. Aucun résultat de vues ou de ventes n'est garanti.</p>`];
+  order=["synth","detail","diag","action","pack","livres","moi"];title="Audit TikTok express";chip="Offert";
+  sub="Ce que voit un client quand il arrive sur votre page, ce qui le fait partir, et une action gratuite pour cette semaine.";
+  fin=["Passons à l'action","Le pack vous intéresse, ou vous avez une question sur ce rapport ? Écrivez-moi : je vous réponds rapidement.","Me contacter sur WhatsApp"];
+ }else{
+  const ch=D.chiffres,compl=ch.duree_moyenne?Math.round(ch.temps_moyen/ch.duree_moyenne*100):0,fn=D.entonnoir,fmax=Math.max(1,+fn[0][1]||1);
+  P.synth=["Synthèse",`<p class="lead">Bonjour ${E(D.nom)}, merci pour votre confiance. Voici l'analyse complète de votre page, avec vos statistiques : ce qui fonctionne, ce qui freine vos ventes, et ce qu'on change en premier.</p>${synthTop}<div class="c"><div class="lab">Votre objectif</div><p class="big">${E(D.objectif)}</p></div><div class="c"><div class="lab">Votre compte</div><p>${E(D.compte)} · ${E(D.niche)} · ${E(D.ville)} · ${(+D.abonnes||0).toLocaleString("fr-FR")} abonnés</p><p class="m">Période analysée : ${E(D.periode)}</p></div></div></div><div class="c">${svgScale(score)}</div><div class="row"><div class="c"><div class="lab ok">Point fort</div><p>${E(D.forces?.[0])}</p></div><div class="c"><div class="lab ko">Frein principal</div><p>${E(D.blocages[0].titre)}</p></div><div class="c d"><div class="lab">Action de la semaine</div><p>${E(D.action_semaine)}</p></div></div>`];
+  P.chiffres=["Chiffres clés",`${tiles([[(+ch.vues_moyennes).toLocaleString("fr-FR"),"Vues moyennes"],[ch.temps_moyen+" s","Temps moyen"],[compl+" %","Taux de complétion"],[ch.video_entiere+" %","Vidéo vue en entier",1],[ch.messages_semaine,"Messages / semaine"],[ch.delai_reponse_h+" h","Délai de réponse",1]])}<div class="c"><div class="lab">Vues des dernières vidéos · pointillés : moyenne du compte</div>${svgBars(D.videos)}<p class="m">En rose vif : les vidéos au-dessus de la moyenne. Ce sont elles qu'il faut étudier et refaire.</p></div><div class="c"><div class="lab">D'où viennent les vues</div>${svgSources(D.sources)}</div><p class="m">Chiffres relevés dans vos statistiques TikTok, transmises par captures d'écran. Taux de complétion = temps moyen ÷ durée moyenne des vidéos. On compare votre compte à sa propre moyenne.</p>`];
+  P.conv=["Du visionnage à la commande",`<p class="lead">Le chemin de vos clients, de la vidéo à la commande. Chaque marche perdue est une vente perdue.</p><div class="c">${fn.map(([n,v],i)=>`<div style="margin:0 auto 8px;width:${100-i*16}%;background:${i===fn.length-1?"#fe2c55":i%2?"#ffe4e8":"#e6fbfa"};color:${i===fn.length-1?"#fff":"#161823"};border-radius:10px;padding:10px;text-align:center;font-weight:700">${E(n)} : ${(+v).toLocaleString("fr-FR")}</div>`).join("")}<p class="m" style="text-align:center">Sur ${(+fn[0][1]).toLocaleString("fr-FR")} vues, ${E(fn.at(-1)[1])} commandes (${(fn.at(-1)[1]/fmax*100).toFixed(2).replace(".",",")} %).</p></div><div class="c dash"><div class="lab">Test du client mystère</div><div style="background:#fe2c55;color:#fff;border-radius:16px 16px 4px 16px;padding:12px 16px;margin:8px 0 8px 120px">${E(D.client_mystere.message)}<div style="font-size:11px;opacity:.85">${E(D.client_mystere.envoye)}</div></div><div style="background:#f4f4f6;border-radius:16px 16px 16px 4px;padding:12px 16px;margin:0 120px 12px 0">${E(D.client_mystere.reponse)}</div><p><b>Verdict :</b> ${E(D.client_mystere.verdict)}</p></div>`];
+  P.prios=["Vos 3 priorités",`<p class="lead">Trois priorités, pas trente, classées par impact sur vos ventes et par effort. Chacune renvoie à ce qu'il faut relire dans votre pack.</p><div class="row"><div style="flex:1.5">${D.priorites.map((p,i)=>`<div class="c" style="display:flex;gap:12px"><div class="pn">${i+1}</div><div><b>${E(p.titre)}</b><table style="font-size:12.5px">${[["Constat",p.constat],["Action",p.action],["Mesure",p.mesure],["Quand",p.echeance]].map(([a,b])=>`<tr><td style="border:0;padding:2px 8px 2px 0;color:#6b6f7b;font-weight:700;width:60px">${a}</td><td style="border:0;padding:2px 0">${E(b)}</td></tr>`).join("")}</table>${p.lire?`<div style="font-size:12px;color:#14a8a4;font-weight:700;margin-top:4px">À relire : ${E(p.lire)}</div>`:""}</div></div>`).join("")}</div><div><div class="c g">${svgMatrix(D.priorites)}</div></div></div>`];
+  P.exemples=["Exemples réécrits",`<p class="lead">Des exemples prêts à utiliser, écrits à partir de votre page.</p><div class="c"><div class="lab">Votre bio</div><table><tr><th>Avant</th><th>Après</th></tr><tr><td class="av">${E(D.exemples.bio_avant)}</td><td class="ap">${E(D.exemples.bio_apres)}</td></tr></table></div><div class="c"><div class="lab">Vos accroches</div><table><tr><th>Avant</th><th>Après</th></tr>${D.exemples.accroches.map(([a,b])=>`<tr><td class="av">${E(a)}</td><td class="ap">${E(b)}</td></tr>`).join("")}</table></div><div class="row"><div class="c"><div class="lab">Appel à l'action</div><p style="font-weight:600">« ${E(D.exemples.cta)} »</p></div><div class="c"><div class="lab">Réponse type aux messages</div><p style="font-weight:600">« ${E(D.exemples.reponse_type)} »</p></div></div>`];
+  P.plan=["Plan d'action",`<div class="c d"><div class="lab">Votre action cette semaine</div><p class="big">${E(D.action_semaine)}</p></div><div class="c"><div class="lab">Vos 7 prochains jours</div>${(D.sept_jours||[]).map(s=>`<div style="display:flex;gap:10px;margin-bottom:6px"><span style="width:14px;height:14px;border:2px solid #6b6f7b;border-radius:50%;flex:none;margin-top:3px"></span>${E(s)}</div>`).join("")}</div><div class="lab">Vos 30 prochains jours</div><div class="row" style="margin-bottom:14px">${D.plan_30.map((w,i)=>`<div class="c" style="margin:0;${i===0?"background:#ffe9ee":""}"><div class="lab" style="margin-bottom:4px">${E(w[0])}</div><b>${E(w[1])}</b><p style="font-size:12px">${E(w[2])}</p></div>`).join("")}</div><div class="c g"><div class="lab">Point de suivi : ${E(D.suivi_date)}</div><table><tr><th>Indicateur</th><th>Aujourd'hui</th><th>Dans 30 jours</th></tr>${[["Messages de clients / semaine",ch.messages_semaine],["Vidéo vue en entier",ch.video_entiere+" %"],["Délai de réponse",ch.delai_reponse_h+" h"],["Note globale",score+" / 30"]].map(([a,b])=>`<tr><td>${a}</td><td>${E(b)}</td><td style="border-bottom:1px solid #161823"></td></tr>`).join("")}</table></div>`];
+  order=["synth","detail","chiffres","conv","diag","prios","exemples","plan"];title="Audit d'accompagnement TikTok";chip="Inclus avec votre pack";
+  sub="Votre page analysée en détail, vos 3 priorités et votre plan de 30 jours.";
+  fin=["On avance ensemble","Une question sur une priorité ? Envoyez-moi vos résultats de la semaine sur WhatsApp, je vous réponds rapidement.","Envoyer mes résultats sur WhatsApp"];
+ }
+ const cover=`<div class="rp"><div style="font-weight:700">Mohamed Nabi · Royal Freelance</div><div style="margin-top:40px;background:linear-gradient(110deg,#e6fbfa,#ffe9ee);border-radius:24px;padding:34px 36px"><span style="display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:3px 10px;border-radius:10px;background:#fff;color:#fe2c55;margin-bottom:12px">${chip}</span><div style="font-size:46px;font-weight:800;letter-spacing:-.035em;line-height:1.02">${title}<span style="color:#fe2c55">.</span></div><div class="bar" style="margin:18px 0;width:240px"></div><p style="font-size:16px">${sub}</p><p class="m" style="font-size:13px">Préparé pour <b>${E(D.compte)}</b> · ${E(D.date)}</p></div><div style="margin-top:22px">${img("bio","Capture de la bio du profil (format horizontal)",280,"fit")}<div class="m" style="margin-top:6px;font-weight:600">La page analysée</div></div><div style="margin-top:22px;columns:2;column-gap:40px">${order.map((k,i)=>`<div style="padding:7px 0;border-bottom:1px solid #e4e4e8;font-weight:600"><span style="color:#fe2c55;font-weight:800;margin-right:14px">${String(i+1).padStart(2,"0")}</span>${P[k][0]}</div>`).join("")}</div></div>`;
+ const end=`<div class="rp" style="background:linear-gradient(180deg,#e6fbfa,#ffe9ee);display:flex;align-items:center;justify-content:center;text-align:center"><div style="max-width:560px"><div class="bar" style="margin:0 auto 30px"></div><div style="font-size:52px;font-weight:800;letter-spacing:-.035em;line-height:1.05">${fin[0]}<span style="color:#fe2c55">.</span></div><p style="font-size:17px;margin:20px 0 36px">${fin[1]}</p><a class="wa walink" href="https://wa.me/2250161182628" style="font-size:22px;padding:22px 52px;border-radius:18px">${fin[2]}</a><p class="m" style="font-size:13px;margin-top:18px">+225 01 61 18 26 28 · @mohamednabiofficiel</p></div><div class="foot"><span>${KIND} · ${E(D.compte)}</span><span>Mohamed Nabi · Royal Freelance</span></div></div>`;
+ return[cover,...order.map((k,i)=>pg(i+1,P[k][0],P[k][1])),end]}
+function render(){$("sc").innerHTML=pages().join("");fit()}
+let STEP=1;function go(n){STEP=n;document.querySelectorAll(".stp").forEach(p=>p.hidden=+p.dataset.p!==n);document.querySelectorAll("#steps button").forEach(b=>{b.classList.toggle("on",+b.dataset.st===n);b.classList.toggle("done",+b.dataset.st<n)});
+ const pv=$("prev");if(n===2&&innerWidth>=1100)$("slot2").appendChild(pv);else $("slot3").appendChild(pv);$("slot2").hidden=!(n===2&&innerWidth>=1100);
+ requestAnimationFrame(fit);$("v-rapport").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}
+document.addEventListener("click",e=>{const g=e.target.closest("[data-go],[data-st]");if(g&&g.closest("#v-rapport"))go(+(g.dataset.go||g.dataset.st))});
+function fit(){const w=$("prev").clientWidth-28;if(w<=0)return;const k=Math.min(1,w/794),c=$("sc");c.style.height="auto";c.style.marginBottom="0";c.style.width="794px";const H=c.scrollHeight;c.style.transform=`scale(${k})`;c.style.height=H+"px";c.style.marginBottom=(-H*(1-k))+"px"}
+const ro=new ResizeObserver(fit);ro.observe($("prev"));
+buildForm();drawImgs();render();
+const loadJs=src=>new Promise((ok,ko)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=ko;document.head.appendChild(s)});
+$("dl").onclick=async()=>{const m=$("rmsg");const dls=await claude.use("downloads");if(!dls){m.textContent="Le téléchargement n'est pas disponible.";return}
+ m.textContent="Création du PDF…";
+ try{if(!window.html2canvas)await loadJs("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");if(!window.jspdf)await loadJs("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+  const st=$("stage");st.innerHTML=pages().join("");const pdf=new jspdf.jsPDF({unit:"mm",format:"a4"});const ps=[...st.querySelectorAll(".rp")];
+  for(let i=0;i<ps.length;i++){ps[i].style.margin="0";ps[i].style.boxShadow="none";const c=await html2canvas(ps[i],{scale:2,backgroundColor:"#ffffff",useCORS:true});if(i)pdf.addPage();pdf.addImage(c.toDataURL("image/jpeg",.92),"JPEG",0,0,210,297);m.textContent=`Création du PDF… page ${i+1} / ${ps.length}`}
+  ps.forEach((pg,i)=>pg.querySelectorAll(".walink").forEach(w=>{const a=w.getBoundingClientRect(),b=pg.getBoundingClientRect(),k=210/794;pdf.setPage(i+1);pdf.link((a.left-b.left)*k,(a.top-b.top)*k,a.width*k,a.height*k,{url:"https://wa.me/2250161182628"})}));
+  st.innerHTML="";const name=(D.type==="prospection"?"Audit-express-":"Audit-accompagnement-")+String(D.compte||"compte").replace(/[^\w.-]+/g,"")+".pdf";
+  await dls.save({filename:name,data:pdf.output("blob")});m.textContent="PDF prêt : "+name}
+ catch(e){m.textContent="Le PDF n'a pas pu être créé ("+(e?.code||e?.message||"erreur")+")."}};
+$("toSheet").onclick=async()=>{const m=$("rmsg");const mcp=await claude.use("mcp");if(!mcp){m.textContent="Déverrouille l'espace avec ton code pour écrire dans le Sheet.";return}
+ const C=D.criteres,ch=D.chiffres||{},A=D.type==="accompagnement";const pr=A?D.priorites.map(p=>p.titre+" : "+p.action):D.blocages.map(b=>b.titre);
+ const row=[frDate(D.date_iso),D.compte,A?"Audit d'accompagnement":"Audit de prospection",A?D.objectif:"",...C.map(c=>+c.note||0),null,null,A?+ch.vues_moyennes||0:"",A?+ch.temps_moyen||0:"",A?+ch.duree_moyenne||0:"",null,A?(+ch.video_entiere||0)/100:"",A?+ch.messages_semaine||0:"",A?+ch.delai_reponse_h||0:"",...pr,frDate(today()),null,"",null,"",A?"":"Freins notés à la place des priorités"];
+ m.textContent="Envoi…";try{await mcp.callTool("Google Sheets","append_values",{spreadsheetId:SID,range:"Audits!A1:AB1",values:[row]});m.textContent="Audit de "+D.compte+" ajouté à l'onglet Audits."}catch(e){m.textContent="L'envoi a échoué ("+(e?.code||e?.message||"erreur")+"). Rien n'a été écrit."}};
+/* ---------- messages ---------- */
+const MSI=["send","refresh","search","report","reply","star"];
+const MS=[["Approche","Bonjour [prénom], je suis tombé sur ton compte [nom], j'aime beaucoup [élément précis]. J'aide les [cible] à mieux vendre sur TikTok. En regardant tes vidéos, j'ai repéré trois choses simples qui pourraient t'amener plus de clients. Je peux te les envoyer ? C'est gratuit et sans engagement."],["Relance","Bonjour [prénom], j'ai vu ta vidéo sur [sujet], [remarque positive précise]. Ma proposition tient toujours si tu veux mes trois remarques. Bonne journée !"],["Mini-audit","Voici mes remarques sur ton compte.\nCe qui marche : 1) … 2) … 3) …\nCe qui te fait perdre des clients : 1) … 2) … 3) …\nUne action pour aujourd'hui : …\nSi tu veux qu'on regarde tes statistiques et qu'on construise un plan ensemble, je propose un audit complet. Dis-moi si ça t'intéresse."],["Envoi du rapport","Merci pour notre échange. Voici ton rapport d'audit. Ta première action : [action], si possible avant [date]. Je te recontacte le [date] pour voir comment ça se passe."],["Suivi J+7","Bonjour [prénom], comment ça se passe avec [action] ? Tu peux m'envoyer les chiffres de tes deux dernières vidéos ? On regarde ensemble ce qui a changé."],["Demande de témoignage","Je suis content de tes progrès. Est-ce que tu accepterais d'écrire deux ou trois phrases sur ce que l'audit t'a apporté ? Et me permets-tu de montrer [chiffres / captures] ? Tu peux bien sûr refuser."]];
+$("msgs").innerHTML=MS.map(([t,x],i)=>`<div class="mcard reveal"><div class="mh"><span class="lic">${ic(MSI[i],20)}</span><h3>${t}</h3><button class="icb" data-c="${i}" aria-label="Copier ${t}">${ic("copy",18)}</button></div><p id="m${i}" class="clamp">${esc(x)}</p><button class="more2" data-x="${i}">Voir tout</button></div>`).join("");
+document.querySelectorAll("#msgs .reveal").forEach(el=>io.observe(el));
+$("msgs").addEventListener("click",async e=>{const x=e.target.closest("[data-x]");if(x){const p=$("m"+x.dataset.x);p.classList.toggle("clamp");x.textContent=p.classList.contains("clamp")?"Voir tout":"Réduire";return}
+ const b=e.target.closest("[data-c]");if(!b)return;try{await navigator.clipboard.writeText($("m"+b.dataset.c).textContent);b.innerHTML=ic("check",18);b.classList.add("ok")}catch(err){$("m"+b.dataset.c).classList.remove("clamp")}setTimeout(()=>{b.innerHTML=ic("copy",18);b.classList.remove("ok")},1600)});
+
+route();
+}
+</script>
+</body>
+</html>
